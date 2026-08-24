@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SatQuery AI MVP</title>
+  <style>
+    :root { --bg:#071018; --panel:#0d1822; --panel2:#101f2c; --line:#213545; --text:#eaf4fb; --muted:#95a8b6; --accent:#55b7ff; --green:#63d6a3; --warn:#ffc857; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; background: radial-gradient(circle at 20% 0%, #10293d 0, var(--bg) 36%); color:var(--text); min-height:100vh; }
+    header { padding:22px 28px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; background:rgba(7,16,24,.85); position:sticky; top:0; backdrop-filter:blur(12px); z-index:5; }
+    .brand { font-size:22px; font-weight:800; letter-spacing:.2px; } .brand span{ color:var(--accent); }
+    .badge { border:1px solid #31536c; color:#b7d9ef; background:#102638; padding:7px 10px; border-radius:999px; font-size:12px; }
+    main { max-width:1420px; margin:0 auto; padding:24px; }
+    .grid { display:grid; grid-template-columns: 1.1fr .9fr; gap:18px; }
+    .card { background:rgba(13,24,34,.94); border:1px solid var(--line); border-radius:18px; overflow:hidden; box-shadow:0 18px 60px rgba(0,0,0,.22); }
+    .card h2 { font-size:14px; margin:0; padding:15px 17px; border-bottom:1px solid var(--line); color:#cce8fa; letter-spacing:.2px; }
+    .upload-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:14px; }
+    .drop { border:1px dashed #395c73; border-radius:13px; padding:13px; background:#0a141d; }
+    input[type=file] { width:100%; color:var(--muted); }
+    .meta { color:var(--muted); font-size:12px; margin-top:8px; line-height:1.5; min-height:37px; }
+    .viewer { min-height:450px; display:flex; align-items:center; justify-content:center; background:#050b10; position:relative; }
+    .viewer img { max-width:100%; max-height:560px; object-fit:contain; display:none; }
+    .empty { color:#607887; text-align:center; padding:60px 18px; }
+    .tabs { display:flex; gap:8px; padding:12px 14px; border-top:1px solid var(--line); }
+    .tabs button { flex:1; }
+    button { border:1px solid #2c5168; border-radius:10px; background:#102638; color:#e9f6ff; padding:10px 13px; cursor:pointer; font-weight:650; }
+    button:hover { background:#15344b; }
+    button.primary { background:#1d6ea6; border-color:#2e8ac7; }
+    button.primary:hover { background:#2582bd; }
+    .chat { display:flex; flex-direction:column; min-height:655px; }
+    .messages { flex:1; overflow:auto; padding:16px; max-height:560px; }
+    .msg { max-width:90%; margin:0 0 12px; border-radius:14px; padding:12px 13px; line-height:1.45; white-space:pre-wrap; }
+    .user { margin-left:auto; background:#183e58; }
+    .assistant { background:#13212c; border:1px solid #213848; }
+    .assistant small { display:block; margin-top:8px; color:var(--muted); }
+    .composer { padding:14px; border-top:1px solid var(--line); display:grid; grid-template-columns:1fr auto; gap:9px; }
+    textarea { width:100%; min-height:48px; max-height:120px; resize:vertical; border:1px solid #2b475a; border-radius:11px; background:#08131c; color:var(--text); padding:11px 12px; outline:none; }
+    .suggestions { padding:0 14px 14px; display:flex; flex-wrap:wrap; gap:7px; }
+    .suggestions button { font-size:12px; padding:7px 9px; font-weight:550; }
+    .bottom { margin-top:18px; display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+    .evidence, .trace { padding:16px; min-height:220px; }
+    .kv { display:grid; grid-template-columns:150px 1fr; gap:8px; font-size:13px; padding:5px 0; border-bottom:1px solid rgba(255,255,255,.045); }
+    .kv .k { color:var(--muted); }
+    .trace-item { display:flex; gap:10px; align-items:flex-start; padding:8px 0; border-bottom:1px solid rgba(255,255,255,.05); font-size:13px; }
+    .dot { width:9px; height:9px; border-radius:50%; background:var(--green); margin-top:5px; box-shadow:0 0 12px rgba(99,214,163,.4); }
+    .notice { margin:18px 0 0; color:#a8bdcb; font-size:12px; line-height:1.5; border:1px solid #274456; background:#0b1720; border-radius:12px; padding:11px 13px; }
+    .loading { opacity:.65; pointer-events:none; }
+    @media (max-width: 980px) { .grid,.bottom{grid-template-columns:1fr}.chat{min-height:520px}.upload-row{grid-template-columns:1fr}.viewer{min-height:340px} }
+  </style>
+</head>
+<body>
+<header><div class="brand">SatQuery <span>AI</span></div><div class="badge">Functional MVP • geospatial + agent routing</div></header>
+<main>
+  <div class="grid">
+    <section class="card">
+      <h2>Satellite / Remote-Sensing Viewer</h2>
+      <div class="upload-row">
+        <div class="drop"><b>Primary image</b><input id="primaryFile" type="file" accept=".tif,.tiff,.png,.jpg,.jpeg"/><div class="meta" id="primaryMeta">GeoTIFF/TIFF/PNG/JPEG</div></div>
+        <div class="drop"><b>Second image (optional)</b><input id="secondaryFile" type="file" accept=".tif,.tiff,.png,.jpg,.jpeg"/><div class="meta" id="secondaryMeta">Use for T1→T2 or optical+SAR</div></div>
+      </div>
+      <div class="viewer"><div class="empty" id="emptyViewer">Upload a remote-sensing image to start.</div><img id="viewerImage" alt="analysis view" /></div>
+      <div class="tabs"><button id="showPrimary">Primary</button><button id="showSecondary">Secondary</button><button id="showOverlay" class="primary">Latest evidence overlay</button></div>
+    </section>
+
+    <section class="card chat">
+      <h2>SatQuery AI Chat</h2>
+      <div class="messages" id="messages">
+        <div class="msg assistant">Upload an image, then ask a question. I will route it to a specialist tool and return evidence + an execution trace.</div>
+      </div>
+      <div class="suggestions">
+        <button data-q="Is there a water body in the north-west part of this tile?">Find water</button>
+        <button data-q="Describe the land-cover and major objects visible in this image.">Describe scene</button>
+        <button data-q="Has the water area grown or shrunk since last year?">Compare change</button>
+        <button data-q="Use the optical and SAR images together to identify water-covered regions.">Optical + SAR</button>
+      </div>
+      <div class="composer"><textarea id="query" placeholder="Ask: What changed between these two dates?"></textarea><button id="ask" class="primary">Analyze</button></div>
+    </section>
+  </div>
+
+  <div class="bottom">
+    <section class="card"><h2>Spatial Evidence</h2><div class="evidence" id="evidence"><div class="empty">No evidence yet.</div></div></section>
+    <section class="card"><h2>Auditable Execution Trace</h2><div class="trace" id="trace"><div class="empty">The selected task, tool, and processing steps will appear here.</div></div></section>
+  </div>
+  <div class="notice">MVP boundary: GeoTIFF metadata/CRS parsing, coordinate conversion, area estimation, masks, overlays, change comparison and agent routing are implemented. The included CV specialists are lightweight baselines; replace them with your fine-tuned VRSBench/CDVQA/BigEarthNet.txt models for final benchmark accuracy.</div>
+</main>
+<script>
+const state = { primary:null, secondary:null, overlay:null, conversation: crypto.randomUUID(), lastResult:null };
+const $ = id => document.getElementById(id);
+
+function showImage(url){ const img=$('viewerImage'); $('emptyViewer').style.display='none'; img.src=url; img.style.display='block'; }
+async function upload(kind, file){
+  const fd=new FormData(); fd.append('file', file);
+  const meta=$(kind+'Meta'); meta.textContent='Uploading…';
+  const r=await fetch('/api/upload',{method:'POST',body:fd}); const j=await r.json();
+  if(!r.ok) throw new Error(j.detail||'Upload failed');
+  state[kind]=j; meta.textContent=`${j.filename} • ${j.metadata.width}×${j.metadata.height} • ${j.metadata.crs || 'no CRS'}`;
+  if(kind==='primary') showImage(j.preview_url);
+}
+$('primaryFile').addEventListener('change', async e=>{ if(e.target.files[0]) try{await upload('primary',e.target.files[0])}catch(err){alert(err.message)} });
+$('secondaryFile').addEventListener('change', async e=>{ if(e.target.files[0]) try{await upload('secondary',e.target.files[0])}catch(err){alert(err.message)} });
+$('showPrimary').onclick=()=>state.primary&&showImage(state.primary.preview_url);
+$('showSecondary').onclick=()=>state.secondary&&showImage(state.secondary.preview_url);
+$('showOverlay').onclick=()=>state.overlay&&showImage(state.overlay);
+document.querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>{$('query').value=b.dataset.q});
+
+function addMsg(text, who, meta=''){
+ const d=document.createElement('div'); d.className='msg '+who; d.textContent=text;
+ if(meta){const s=document.createElement('small'); s.textContent=meta; d.appendChild(s)}
+ $('messages').appendChild(d); $('messages').scrollTop=$('messages').scrollHeight;
+}
+function renderEvidence(j){
+ const ev=j.evidence; const box=$('evidence');
+ if(!ev){box.innerHTML='<div class="empty">No spatial evidence for this task.</div>';return}
+ const flat=[];
+ flat.push(['Task',j.task]); flat.push(['Feature',j.feature]); flat.push(['Tool',j.tool]); flat.push(['Confidence',Math.round(j.confidence*100)+'%']);
+ const pick = ev.after || ev;
+ if(pick && pick.location) flat.push(['Location',pick.location]);
+ if(pick && pick.area_hectares!=null) flat.push(['Area',pick.area_hectares+' ha']);
+ if(pick && pick.centroid_wgs84) flat.push(['Centroid',`${pick.centroid_wgs84.lat}, ${pick.centroid_wgs84.lon}`]);
+ if(ev.delta_percentage_points!=null) flat.push(['Δ coverage',ev.delta_percentage_points+' percentage points']);
+ if(ev.candidate_water_agreement_percent!=null) flat.push(['Cross-modal agreement',ev.candidate_water_agreement_percent+'%']);
+ box.innerHTML=flat.map(([k,v])=>`<div class="kv"><div class="k">${k}</div><div>${v}</div></div>`).join('') + `<button style="margin-top:12px" onclick="downloadResult()">Download JSON report</button>`;
+}
+function renderTrace(items){ $('trace').innerHTML=items.map(x=>`<div class="trace-item"><div class="dot"></div><div><b>${x.step}</b><br><span style="color:#95a8b6">${x.detail}</span></div></div>`).join(''); }
+function downloadResult(){ if(!state.lastResult)return; const blob=new Blob([JSON.stringify(state.lastResult,null,2)],{type:'application/json'}); const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='satquery-report.json';a.click();URL.revokeObjectURL(a.href); }
+window.downloadResult=downloadResult;
+
+$('ask').onclick=async()=>{
+ const q=$('query').value.trim(); if(!state.primary){alert('Upload a primary image first.');return} if(!q){return}
+ addMsg(q,'user'); $('ask').textContent='Running…'; document.body.classList.add('loading');
+ try{
+   const payload={primary_id:state.primary.id, secondary_id:state.secondary?.id||null, query:q, conversation_id:state.conversation};
+   const r=await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}); const j=await r.json();
+   if(!r.ok) throw new Error(j.detail||'Analysis failed');
+   state.lastResult=j; if(j.overlay_url){state.overlay=j.overlay_url; showImage(j.overlay_url)}
+   addMsg(j.answer,'assistant',`${j.task} • ${j.tool} • confidence ${Math.round(j.confidence*100)}%`);
+   renderEvidence(j); renderTrace(j.execution_trace);
+ }catch(err){addMsg('Error: '+err.message,'assistant')} finally{$('ask').textContent='Analyze';document.body.classList.remove('loading');}
+};
+$('query').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();$('ask').click()}});
+</script>
+</body>
+</html>

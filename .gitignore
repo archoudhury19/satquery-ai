@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# User uploads
+uploads/*
+!uploads/.gitkeep
+
+# Generated files
+generated/*
+!generated/.gitkeep
+
+# Satellite / geospatial data
+*.tif
+*.tiff
+*.jp2
+*.hdf
+*.h5
+
+# Model weights
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+
+# Secrets
+.env
+.env.*
+
+# VS Code / OS
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

@@ -19,7 +19,7 @@ from rasterio.features import shapes
 from shapely.geometry import shape, mapping
 from shapely.ops import transform as shapely_transform
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 UPLOAD_DIR = BASE_DIR / "uploads"
 GENERATED_DIR = BASE_DIR / "generated"
 FRONTEND_DIR = BASE_DIR / "frontend"
@@ -503,4 +503,4 @@ def analyze(req: AnalyzeRequest):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=False)
+    uvicorn.run("backend.app:app", host="127.0.0.1", port=8000, reload=False)

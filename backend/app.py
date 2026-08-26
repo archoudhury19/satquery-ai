@@ -8,6 +8,8 @@ import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from agent.router import build_plan
+from models.rs_vlm import RemoteSensingVLM
 import cv2
 import numpy as np
 import rasterio
@@ -23,6 +25,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 UPLOAD_DIR = BASE_DIR / "uploads"
 GENERATED_DIR = BASE_DIR / "generated"
 FRONTEND_DIR = BASE_DIR / "frontend"
+RS_VLM = RemoteSensingVLM()
 for p in [UPLOAD_DIR, GENERATED_DIR]:
     p.mkdir(parents=True, exist_ok=True)
 

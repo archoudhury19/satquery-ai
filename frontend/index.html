@@ -69,9 +69,9 @@
         <div class="msg assistant">Upload an image, then ask a question. I will route it to a specialist tool and return evidence + an execution trace.</div>
       </div>
       <div class="suggestions">
-        <button data-q="Is there a water body in the north-west part of this tile?">Find water</button>
+        <button data-q="Highlight the water body or river in this image.">Find water / river</button>
         <button data-q="Describe the land-cover and major objects visible in this image.">Describe scene</button>
-        <button data-q="Has the water area grown or shrunk since last year?">Compare change</button>
+        <button data-q="What changed between these two dates, and where did the change occur?">Compare change</button>
         <button data-q="Use the optical and SAR images together to identify water-covered regions.">Optical + SAR</button>
       </div>
       <div class="composer"><textarea id="query" placeholder="Ask: What changed between these two dates?"></textarea><button id="ask" class="primary">Analyze</button></div>
@@ -118,6 +118,8 @@ function renderEvidence(j){
  if(pick && pick.location) flat.push(['Location',pick.location]);
  if(pick && pick.area_hectares!=null) flat.push(['Area',pick.area_hectares+' ha']);
  if(pick && pick.centroid_wgs84) flat.push(['Centroid',`${pick.centroid_wgs84.lat}, ${pick.centroid_wgs84.lon}`]);
+ if(j.bounding_box) flat.push(['Bounding Box', `[(${j.bounding_box.x1}, ${j.bounding_box.y1}), (${j.bounding_box.x2}, ${j.bounding_box.y2})]`]);
+ if(j.mask_stats && j.mask_stats.percent!=null) flat.push(['Detected Coverage', j.mask_stats.percent.toFixed(2)+'%']);
  if(ev.delta_percentage_points!=null) flat.push(['Δ coverage',ev.delta_percentage_points+' percentage points']);
  if(ev.candidate_water_agreement_percent!=null) flat.push(['Cross-modal agreement',ev.candidate_water_agreement_percent+'%']);
  box.innerHTML=flat.map(([k,v])=>`<div class="kv"><div class="k">${k}</div><div>${v}</div></div>`).join('') + `<button style="margin-top:12px" onclick="downloadResult()">Download JSON report</button>`;

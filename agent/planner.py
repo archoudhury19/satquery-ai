@@ -3,13 +3,10 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 
-def understand_query(query: str, image_count: int) -> Dict[str, Any]:
-    """
-    Lightweight deterministic query understanding for the MVP.
-
-    This is intentionally predictable. It can later be replaced
-    by an LLM-based planner without changing the rest of the system.
-    """
+def understand_query(
+    query: str,
+    image_count: int,
+) -> Dict[str, Any]:
 
     q = query.lower().strip()
 
@@ -22,45 +19,99 @@ def understand_query(query: str, image_count: int) -> Dict[str, Any]:
             "region",
             "area",
             "coordinates",
+            "show me where",
+            "point out",
+            "find",
+            "detect",
+            "identify",
+            "isolate",
+            "show",
+            "water body",
+            "river",
+            "lake",
+            "reservoir",
         ]
     )
 
-    temporal = image_count >= 2 and any(
-        term in q
-        for term in [
-            "change",
-            "changed",
-            "increase",
-            "decrease",
-            "before",
-            "after",
-            "between",
-            "grown",
-            "shrunk",
-        ]
+    temporal = (
+        image_count >= 2
+        and any(
+            term in q
+            for term in [
+                "change",
+                "changed",
+                "increase",
+                "increased",
+                "decrease",
+                "decreased",
+                "before",
+                "after",
+                "between",
+                "grown",
+                "grew",
+                "shrunk",
+                "declined",
+                "expanded",
+            ]
+        )
     )
 
-    cross_modal = image_count >= 2 and any(
-        term in q
-        for term in [
-            "optical",
-            "sar",
-            "both",
-            "together",
-            "multimodal",
-            "cross-modal",
-        ]
+    cross_modal = (
+        image_count >= 2
+        and any(
+            term in q
+            for term in [
+                "sar",
+                "optical",
+                "optical-sar",
+                "optical sar",
+                "cross-modal",
+                "cross modal",
+                "both images",
+                "together",
+                "multimodal",
+                "multi-modal",
+                "use both",
+            ]
+        )
     )
 
     captioning = any(
         term in q
         for term in [
             "describe",
+            "description",
             "caption",
             "scene",
+            "scene description",
+            "what is visible",
             "land-cover",
             "land cover",
         ]
+    )
+
+    grounding = (
+        spatial
+        and not captioning
+        and any(
+            term in q
+            for term in [
+                "highlight",
+                "locate",
+                "where",
+                "show",
+                "region",
+                "point out",
+                "find",
+                "detect",
+                "identify",
+                "isolate",
+                "water body",
+                "river",
+                "lake",
+                "reservoir",
+            ]
+        )
     )
 
     return {
@@ -68,111 +119,183 @@ def understand_query(query: str, image_count: int) -> Dict[str, Any]:
         "temporal": temporal,
         "cross_modal": cross_modal,
         "captioning": captioning,
+        "grounding": grounding,
+        "vqa": not captioning and not grounding,
     }
+
+
+def add_step(
+    steps: List[Dict[str, Any]],
+    tool: str,
+    parameters: Dict[str, Any] | None = None,
+) -> None:
+
+    steps.append(
+        {
+            "tool": tool,
+            "parameters": parameters or {},
+        }
+    )
 
 
 def build_plan(
     query: str,
     image_count: int,
 ) -> Dict[str, Any]:
-    """
-    Convert query + input configuration into an observable
-    execution plan.
 
-    The output is intentionally auditable.
-    """
+    if image_count < 1:
+        raise ValueError(
+            "At least one image is required."
+        )
 
-    intent = understand_query(query, image_count)
+    if image_count > 2:
+        raise ValueError(
+            "MVP currently supports a maximum of two images."
+        )
 
-    steps: List[Dict[str, Any]] = [
-        {
-            "tool": "input_validator",
-            "parameters": {},
-        }
-    ]
+    intent = understand_query(
+        query,
+        image_count,
+    )
+
+    steps: List[Dict[str, Any]] = []
+
+    add_step(
+        steps,
+        "input_validator",
+    )
+
+    # --------------------------------------------------------
+    # SINGLE IMAGE
+    # --------------------------------------------------------
 
     if image_count == 1:
+
         if intent["captioning"]:
+
             task = "captioning"
-            steps.append(
-                {
-                    "tool": "rs_captioner",
-                    "parameters": {},
-                }
+            feature = "scene"
+
+            add_step(
+                steps,
+                "rs_captioner",
             )
+
+        elif intent["grounding"]:
+
+            task = "grounding"
+            feature = "auto"
+
+            add_step(
+                steps,
+                "rs_grounding",
+                {
+                    "method": "grid_similarity",
+                    "grid_size": 4,
+                },
+            )
+
+            add_step(
+                steps,
+                "geospatial_tools",
+                {
+                    "generate_spatial_evidence": True,
+                },
+            )
+
         else:
+
             task = "vqa"
-            steps.append(
-                {
-                    "tool": "rs_vqa",
-                    "parameters": {},
-                }
+            feature = "auto"
+
+            add_step(
+                steps,
+                "rs_vqa",
             )
 
-    elif intent["cross_modal"]:
-        task = "cross_modal"
+            if intent["spatial"]:
 
-        steps.extend(
-            [
-                {
-                    "tool": "optical_sar_fusion",
-                    "parameters": {},
-                },
-                {
-                    "tool": "geospatial_tools",
-                    "parameters": {},
-                },
-            ]
-        )
+                add_step(
+                    steps,
+                    "geospatial_tools",
+                    {
+                        "generate_spatial_evidence": True,
+                    },
+                )
 
-    elif intent["temporal"]:
-        task = "change_analysis"
-
-        steps.extend(
-            [
-                {
-                    "tool": "change_engine",
-                    "parameters": {},
-                },
-                {
-                    "tool": "geospatial_tools",
-                    "parameters": {},
-                },
-            ]
-        )
+    # --------------------------------------------------------
+    # TWO IMAGES
+    # --------------------------------------------------------
 
     else:
-        task = "multi_image_vqa"
 
-        steps.append(
-            {
-                "tool": "rs_vqa",
-                "parameters": {},
-            }
-        )
+        if intent["cross_modal"]:
 
-    # Add GIS evidence where spatial information was requested.
-    if intent["spatial"] and not any(
-        s["tool"] == "geospatial_tools"
-        for s in steps
-    ):
-        steps.append(
-            {
-                "tool": "geospatial_tools",
-                "parameters": {},
-            }
-        )
+            task = "cross_modal"
+            feature = "multimodal"
 
-    steps.append(
-        {
-            "tool": "result_integrator",
-            "parameters": {},
-        }
+            add_step(
+                steps,
+                "optical_sar_fusion",
+                {
+                    "use_primary_image": True,
+                    "use_secondary_image": True,
+                },
+            )
+
+            add_step(
+                steps,
+                "geospatial_tools",
+                {
+                    "generate_spatial_evidence": True,
+                },
+            )
+
+        elif intent["temporal"]:
+
+            task = "change_analysis"
+            feature = "auto"
+
+            add_step(
+                steps,
+                "change_engine",
+                {
+                    "compare_before_after": True,
+                },
+            )
+
+            add_step(
+                steps,
+                "geospatial_tools",
+                {
+                    "generate_change_evidence": True,
+                },
+            )
+
+        else:
+
+            task = "multi_image_vqa"
+            feature = "auto"
+
+            add_step(
+                steps,
+                "rs_vqa",
+                {
+                    "use_primary_image": True,
+                    "use_secondary_image": True,
+                },
+            )
+
+    add_step(
+        steps,
+        "result_integrator",
     )
 
     return {
         "task": task,
+        "feature": feature,
         "query": query,
         "image_count": image_count,
+        "intent": intent,
         "steps": steps,
     }

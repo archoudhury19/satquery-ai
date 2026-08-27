@@ -1,0 +1,15 @@
+{
+  "base_model": "GeoRSCLIP-ViT-B-32",
+  "base_model_loader": "open_clip",
+  "adapter": "RSVQAAdapter",
+  "image_embedding_dim": 512,
+  "text_embedding_dim": 512,
+  "input_dim": 1024,
+  "hidden_dim": 512,
+  "num_classes": 50,
+  "dataset": "RSVQA-LR-2k",
+  "adaptation_train_samples": 1600,
+  "internal_validation_samples": 400,
+  "best_internal_validation_accuracy": 0.6425,
+  "training_epochs": 8
+}

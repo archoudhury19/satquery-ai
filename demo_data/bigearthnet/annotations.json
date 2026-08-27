@@ -1,0 +1,15 @@
+{
+  "dataset": "BigEarthNet.txt (arXiv:2603.29630)",
+  "modalities": [
+    "Sentinel-2 Multispectral (10m/20m)",
+    "Sentinel-1 SAR VV (10m RTC)"
+  ],
+  "sample_id": "S2A_MSIL2A_20200827_KOLKATA_PATCH",
+  "land_cover_labels": [
+    "Water bodies",
+    "Urban and built-up land",
+    "Broad-leaved forest",
+    "Agricultural parcels"
+  ],
+  "text_caption": "A coastal river corridor with surrounding mixed agricultural land, dense urban built-up areas, and natural waterways acquired by Sentinel-2 and Sentinel-1 SAR."
+}

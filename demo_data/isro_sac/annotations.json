@@ -1,0 +1,9 @@
+{
+  "dataset": "ISRO/SAC Optical-SAR Co-Registered Evaluation Set",
+  "optical_image": "cartosat_optical_coregistered.tif",
+  "sar_image": "risat_sar_coregistered.tif",
+  "aoi": "Kolkata Urban and River Corridor",
+  "optical_resolution": "10m",
+  "sar_polarization": "VV Backscatter",
+  "task": "Joint cross-modal water and built-up extraction with sub-pixel registration-tolerant consensus fusion."
+}

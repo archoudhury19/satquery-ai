@@ -1,0 +1,43 @@
+{
+  "dataset": "VRSBench (Remote Sensing Captioning, VQA, and Visual Grounding)",
+  "samples": [
+    {
+      "image": "vrsbench_sample_01.tif",
+      "caption_ground_truth": "High-resolution satellite view of the Hooghly river corridor with urban infrastructure along the western bank and dense settlements.",
+      "vqa": [
+        {
+          "question": "Is there a river in this image?",
+          "answer": "yes"
+        },
+        {
+          "question": "Is this an urban or rural area?",
+          "answer": "urban"
+        }
+      ],
+      "grounding": [
+        {
+          "query": "Highlight the water body referred to in the query.",
+          "target_feature": "water",
+          "expected_location": "south-west"
+        }
+      ]
+    },
+    {
+      "image": "vrsbench_sample_02_s2.tif",
+      "caption_ground_truth": "Multispectral Sentinel-2 tile displaying a major water reservoir surrounded by agricultural parcels and vegetation canopy.",
+      "vqa": [
+        {
+          "question": "Is there water present in this image?",
+          "answer": "yes"
+        }
+      ],
+      "grounding": [
+        {
+          "query": "Highlight the water reservoir.",
+          "target_feature": "water",
+          "expected_location": "north"
+        }
+      ]
+    }
+  ]
+}

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SatQuery AI MVP</title>
   <style>
-    :root { --bg:#071018; --panel:#0d1822; --panel2:#101f2c; --line:#213545; --text:#eaf4fb; --muted:#95a8b6; --accent:#55b7ff; --green:#63d6a3; --warn:#ffc857; }
+    :root { --bg:#071018; --panel:#0d1822; --panel2:#101f2c; --line:#213545; --text:#eaf4fb; --muted:#95a8b6; --accent:#55b7ff; --green:#63d6a3; --warn:#ffc857; --ec:#1a3d28; --ec-border:#2a6440; }
     * { box-sizing: border-box; }
     body { margin:0; font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif; background: radial-gradient(circle at 20% 0%, #10293d 0, var(--bg) 36%); color:var(--text); min-height:100vh; }
     header { padding:22px 28px; border-bottom:1px solid var(--line); display:flex; justify-content:space-between; align-items:center; background:rgba(7,16,24,.85); position:sticky; top:0; backdrop-filter:blur(12px); z-index:5; }
@@ -46,6 +46,17 @@
     .dot { width:9px; height:9px; border-radius:50%; background:var(--green); margin-top:5px; box-shadow:0 0 12px rgba(99,214,163,.4); }
     .notice { margin:18px 0 0; color:#a8bdcb; font-size:12px; line-height:1.5; border:1px solid #274456; background:#0b1720; border-radius:12px; padding:11px 13px; }
     .loading { opacity:.65; pointer-events:none; }
+    /* Edge case panel */
+    .ec-panel { border-top:1px solid var(--ec-border); background:rgba(10,28,18,.7); padding:10px 14px; }
+    .ec-toggle { display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px; color:#7ecfa6; font-weight:700; background:none; border:none; padding:0; margin-bottom:0; }
+    .ec-toggle:hover { color:#a8f0cc; }
+    .ec-toggle svg { transition:transform .2s; }
+    .ec-toggle.open svg { transform:rotate(90deg); }
+    .ec-grid { display:none; flex-wrap:wrap; gap:6px; margin-top:10px; }
+    .ec-grid.visible { display:flex; }
+    .ec-btn { font-size:11px; padding:5px 9px; background:rgba(20,70,40,.8); border:1px solid var(--ec-border); color:#a8f0cc; border-radius:9px; cursor:pointer; font-weight:600; transition:background .15s; }
+    .ec-btn:hover { background:rgba(30,100,60,.9); }
+    .ec-label { font-size:10px; color:#5a9e7a; display:block; margin-top:3px; letter-spacing:.2px; }
     @media (max-width: 980px) { .grid,.bottom{grid-template-columns:1fr}.chat{min-height:520px}.upload-row{grid-template-columns:1fr}.viewer{min-height:340px} }
   </style>
 </head>
@@ -54,13 +65,38 @@
 <main>
   <div class="grid">
     <section class="card">
-      <h2>Satellite / Remote-Sensing Viewer</h2>
+      <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--line); padding:10px 17px;">
+        <h2 style="border:none; padding:0;">Satellite / Remote-Sensing Viewer</h2>
+        <div style="display:flex; gap:6px; flex-wrap:wrap;">
+          <button type="button" class="demo-btn" data-key="sentinel2" style="font-size:11px; padding:4px 8px;">🛰️ Sentinel-2</button>
+          <button type="button" class="demo-btn" data-key="real_sf" style="font-size:11px; padding:4px 8px; background:#1d5d85;">🌐 Real SF Bay (COG)</button>
+          <button type="button" class="demo-btn" data-key="real_sentinel" style="font-size:11px; padding:4px 8px; background:#1d5d85;">🌐 Real Multispectral</button>
+          <button type="button" class="demo-btn" data-key="optical_sar" style="font-size:11px; padding:4px 8px;">📡 Optical+SAR</button>
+          <button type="button" class="demo-btn" data-key="bitemporal" style="font-size:11px; padding:4px 8px;">⏳ Change T1+T2</button>
+        </div>
+      </div>
       <div class="upload-row">
         <div class="drop"><b>Primary image</b><input id="primaryFile" type="file" accept=".tif,.tiff,.png,.jpg,.jpeg"/><div class="meta" id="primaryMeta">GeoTIFF/TIFF/PNG/JPEG</div></div>
         <div class="drop"><b>Second image (optional)</b><input id="secondaryFile" type="file" accept=".tif,.tiff,.png,.jpg,.jpeg"/><div class="meta" id="secondaryMeta">Use for T1→T2 or optical+SAR</div></div>
       </div>
-      <div class="viewer"><div class="empty" id="emptyViewer">Upload a remote-sensing image to start.</div><img id="viewerImage" alt="analysis view" /></div>
+      <div class="viewer"><div class="empty" id="emptyViewer">Upload an image or click a quick demo button above.</div><img id="viewerImage" alt="analysis view" /></div>
       <div class="tabs"><button id="showPrimary">Primary</button><button id="showSecondary">Secondary</button><button id="showOverlay" class="primary">Latest evidence overlay</button></div>
+      <!-- Edge Case Quick-Test Panel -->
+      <div class="ec-panel">
+        <button class="ec-toggle" id="ecToggle">
+          <svg width="10" height="10" viewBox="0 0 10 10"><polygon points="2,1 9,5 2,9" fill="#7ecfa6"/></svg>
+          🧪 Edge Case Quick Tests <span style="color:#5a9e7a;font-weight:400;margin-left:4px;">— 7 hard scenarios, loads image + runs analysis</span>
+        </button>
+        <div class="ec-grid" id="ecGrid">
+          <button class="ec-btn" data-ec="ec_urban" data-q="Map the land cover — identify buildings, vegetation, water, and bare ground.">🏙️ Dense Urban<span class="ec-label">Paris sim • target: built-up &gt;50%</span></button>
+          <button class="ec-btn" data-ec="ec_forest" data-q="Map the land cover — identify buildings, vegetation, water, and bare ground.">🌿 Tropical Forest<span class="ec-label">Amazon sim • target: veg 100%</span></button>
+          <button class="ec-btn" data-ec="ec_water" data-q="Highlight the water body or river in this image.">🌊 Coastal Ocean<span class="ec-label">Mediterranean sim • target: water &gt;80%</span></button>
+          <button class="ec-btn" data-ec="ec_desert" data-q="Map the land cover — identify buildings, vegetation, water, and bare ground.">🏜️ Arid Desert<span class="ec-label">Sahara sim • target: bare &gt;80%</span></button>
+          <button class="ec-btn" data-ec="ec_agri" data-q="Map the land cover — identify buildings, vegetation, water, and bare ground.">🌾 Agricultural Fields<span class="ec-label">Ukraine sim • built-up must be &lt;20%</span></button>
+          <button class="ec-btn" data-ec="ec_delta" data-q="Highlight the water body or river in this image.">🔵 River Delta<span class="ec-label">Ganges • braided channels &amp; delta islands</span></button>
+          <button class="ec-btn" data-ec="ec_suburban" data-q="Map the land cover — identify buildings, vegetation, water, and bare ground.">🏘️ Suburban Mixed<span class="ec-label">London sim • mixed veg+buildings</span></button>
+        </div>
+      </div>
     </section>
 
     <section class="card chat">
@@ -71,6 +107,7 @@
       <div class="suggestions">
         <button data-q="Highlight the water body or river in this image.">Find water / river</button>
         <button data-q="Describe the land-cover and major objects visible in this image.">Describe scene</button>
+        <button data-q="Identify the green fields, buildings, and water in different colours.">Segment land cover</button>
         <button data-q="What changed between these two dates, and where did the change occur?">Compare change</button>
         <button data-q="Use the optical and SAR images together to identify water-covered regions.">Optical + SAR</button>
       </div>
@@ -104,6 +141,60 @@ $('showSecondary').onclick=()=>state.secondary&&showImage(state.secondary.previe
 $('showOverlay').onclick=()=>state.overlay&&showImage(state.overlay);
 document.querySelectorAll('[data-q]').forEach(b=>b.onclick=()=>{$('query').value=b.dataset.q});
 
+async function loadDemo(sampleKey){
+  try {
+    $('primaryMeta').textContent = 'Loading demo sample…';
+    const r = await fetch('/api/load_demo', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({sample_key: sampleKey}),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.detail || 'Failed to load demo sample');
+    state.primary = j.primary;
+    $('primaryMeta').textContent = `${j.primary.filename} • ${j.primary.metadata.width}×${j.primary.metadata.height} • ${j.primary.metadata.crs || 'no CRS'}`;
+    showImage(j.primary.preview_url);
+
+    if (j.secondary) {
+      state.secondary = j.secondary;
+      $('secondaryMeta').textContent = `${j.secondary.filename} • ${j.secondary.metadata.width}×${j.secondary.metadata.height} • ${j.secondary.metadata.crs || 'no CRS'}`;
+    } else {
+      state.secondary = null;
+      $('secondaryMeta').textContent = 'Use for T1→T2 or optical+SAR';
+    }
+    addMsg(`Loaded demo sample: ${j.title}`, 'assistant');
+  } catch(err) {
+    alert(err.message);
+  }
+}
+document.querySelectorAll('.demo-btn').forEach(b => {
+  b.onclick = () => loadDemo(b.dataset.key);
+});
+
+// ── Edge Case Toggle ──────────────────────────────────────────
+const ecToggle = $('ecToggle');
+const ecGrid   = $('ecGrid');
+ecToggle.onclick = () => {
+  const open = ecGrid.classList.toggle('visible');
+  ecToggle.classList.toggle('open', open);
+};
+
+// ── Edge Case one-click: load image → pre-fill query → auto-run ──
+document.querySelectorAll('.ec-btn').forEach(b => {
+  b.onclick = async () => {
+    const key = b.dataset.ec;
+    const q   = b.dataset.q;
+    try {
+      await loadDemo(key);
+      $('query').value = q;
+      // small delay to let file state settle, then auto-run
+      setTimeout(() => $('ask').click(), 300);
+    } catch(err) {
+      alert('Edge case load failed: ' + err.message);
+    }
+  };
+});
+
 function addMsg(text, who, meta=''){
  const d=document.createElement('div'); d.className='msg '+who; d.textContent=text;
  if(meta){const s=document.createElement('small'); s.textContent=meta; d.appendChild(s)}
@@ -114,14 +205,33 @@ function renderEvidence(j){
  if(!ev){box.innerHTML='<div class="empty">No spatial evidence for this task.</div>';return}
  const flat=[];
  flat.push(['Task',j.task]); flat.push(['Feature',j.feature]); flat.push(['Tool',j.tool]); flat.push(['Confidence',Math.round(j.confidence*100)+'%']);
- const pick = ev.after || ev;
- if(pick && pick.location) flat.push(['Location',pick.location]);
- if(pick && pick.area_hectares!=null) flat.push(['Area',pick.area_hectares+' ha']);
- if(pick && pick.centroid_wgs84) flat.push(['Centroid',`${pick.centroid_wgs84.lat}, ${pick.centroid_wgs84.lon}`]);
- if(j.bounding_box) flat.push(['Bounding Box', `[(${j.bounding_box.x1}, ${j.bounding_box.y1}), (${j.bounding_box.x2}, ${j.bounding_box.y2})]`]);
- if(j.mask_stats && j.mask_stats.percent!=null) flat.push(['Detected Coverage', j.mask_stats.percent.toFixed(2)+'%']);
- if(ev.delta_percentage_points!=null) flat.push(['Δ coverage',ev.delta_percentage_points+' percentage points']);
- if(ev.candidate_water_agreement_percent!=null) flat.push(['Cross-modal agreement',ev.candidate_water_agreement_percent+'%']);
+ if(j.task==='segmentation'){
+  const swatch=(col,label,pct)=>`<div class="kv"><div class="k" style="display:flex;align-items:center;gap:6px"><span style="display:inline-block;width:13px;height:13px;border-radius:3px;background:${col}"></span>${label}</div><div>${pct.toFixed(2)}%</div></div>`;
+  box.innerHTML=flat.map(([k,v])=>`<div class="kv"><div class="k">${k}</div><div>${v}</div></div>`).join('')
+   +(ev.water_percent!=null?swatch('rgb(30,100,200)','Water',ev.water_percent):'')
+   +(ev.vegetation_percent!=null?swatch('rgb(50,200,70)','Vegetation / Fields',ev.vegetation_percent):'')
+   +(ev.built_up_percent!=null?swatch('rgb(220,90,40)','Buildings / Built-up',ev.built_up_percent):'')
+   +(ev.unclassified_percent!=null?swatch('rgb(120,120,120)','Bare / Other',ev.unclassified_percent):'')
+   +`<button style="margin-top:12px" onclick="downloadResult()">Download JSON report</button>`;
+  return;
+ } else if(j.task==='change_analysis' && ev.before && ev.after){
+  if(ev.before.area_hectares!=null) flat.push(['T1 Area',ev.before.area_hectares+' ha']);
+  if(ev.after.area_hectares!=null) flat.push(['T2 Area',ev.after.area_hectares+' ha']);
+  if(j.mask_stats && j.mask_stats.before && j.mask_stats.after){
+    flat.push(['T1 Coverage',j.mask_stats.before.percent.toFixed(2)+'%']);
+    flat.push(['T2 Coverage',j.mask_stats.after.percent.toFixed(2)+'%']);
+  }
+  if(ev.delta_percentage_points!=null) flat.push(['Δ Coverage', (ev.delta_percentage_points>=0?'+':'')+ev.delta_percentage_points+' pp']);
+ } else {
+  const pick = ev.after || ev;
+  if(pick && pick.location) flat.push(['Location',pick.location]);
+  if(pick && pick.area_hectares!=null) flat.push(['Area',pick.area_hectares+' ha']);
+  if(pick && pick.centroid_wgs84) flat.push(['Centroid',`${pick.centroid_wgs84.lat}, ${pick.centroid_wgs84.lon}`]);
+  if(j.bounding_box) flat.push(['Bounding Box', `[(${j.bounding_box.x1}, ${j.bounding_box.y1}), (${j.bounding_box.x2}, ${j.bounding_box.y2})]`]);
+  if(j.mask_stats && j.mask_stats.percent!=null) flat.push(['Detected Coverage', j.mask_stats.percent.toFixed(2)+'%']);
+  if(ev.delta_percentage_points!=null) flat.push(['Δ Coverage', (ev.delta_percentage_points>=0?'+':'')+ev.delta_percentage_points+' pp']);
+  if(ev.candidate_water_agreement_percent!=null) flat.push(['Cross-modal agreement',ev.candidate_water_agreement_percent+'%']);
+ }
  box.innerHTML=flat.map(([k,v])=>`<div class="kv"><div class="k">${k}</div><div>${v}</div></div>`).join('') + `<button style="margin-top:12px" onclick="downloadResult()">Download JSON report</button>`;
 }
 function renderTrace(items){ $('trace').innerHTML=items.map(x=>`<div class="trace-item"><div class="dot"></div><div><b>${x.step}</b><br><span style="color:#95a8b6">${x.detail}</span></div></div>`).join(''); }

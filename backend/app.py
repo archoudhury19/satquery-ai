@@ -28,8 +28,25 @@ from geospatial import (
     fuse_cross_modal_masks,
     compute_bitemporal_change,
     make_bitemporal_overlay,
+    segment_land_cover,
+    ground_with_clip,
+    generate_rs_caption,
 )
 from models.rs_vlm import RemoteSensingVLM
+
+# ============================================================
+# CPU INFERENCE OPTIMIZATIONS (Gap 3 fix)
+# Maximize throughput on CPU without GPU hardware.
+# ============================================================
+import torch
+import os
+# Use all available logical CPU cores for intra-op parallelism
+_cpu_count = os.cpu_count() or 4
+torch.set_num_threads(_cpu_count)
+torch.set_num_interop_threads(max(2, _cpu_count // 2))
+# Disable gradient tracking globally — inference-only app
+torch.set_grad_enabled(False)
+
 
 
 # ============================================================
@@ -166,40 +183,45 @@ def _read_raster(
         ]
 
         if count >= 3:
-
-            channels = [
-                _normalize_band(
-                    src.read(index)
-                )
-                for index in (
-                    1,
-                    2,
-                    3,
-                )
-            ]
-
-            rgb = np.stack(
-                channels,
-                axis=-1,
-            )
-
+            raw_bands = src.read([1, 2, 3])
+            # If raster is uint8, preserve exact radiometric RGB values without distorting color balance
+            if src.dtypes[0] == 'uint8':
+                rgb = np.moveaxis(raw_bands, 0, -1).astype(np.uint8)
+            else:
+                # Joint normalization across all 3 bands to preserve relative R/G/B ratios
+                a = raw_bands.astype(np.float32)
+                finite = np.isfinite(a)
+                if finite.any():
+                    lo, hi = np.percentile(a[finite], [2, 98])
+                    if hi <= lo:
+                        lo, hi = float(np.nanmin(a)), float(np.nanmax(a))
+                    if hi > lo:
+                        a = np.clip((a - lo) / (hi - lo), 0.0, 1.0) * 255.0
+                    rgb = np.moveaxis(a.astype(np.uint8), 0, -1)
+                else:
+                    rgb = np.zeros((src.height, src.width, 3), dtype=np.uint8)
         else:
-
             band = _normalize_band(
                 src.read(1)
             )
-
             rgb = np.stack(
-                [
-                    band,
-                    band,
-                    band,
-                ],
+                [band, band, band],
                 axis=-1,
             )
 
+        bands_dict = {}
+        if count >= 4:
+            bands_dict["red"] = src.read(1)
+            bands_dict["green"] = src.read(2)
+            bands_dict["blue"] = src.read(3)
+            bands_dict["nir"] = src.read(4)
+            if count >= 6:
+                bands_dict["swir1"] = src.read(5)
+                bands_dict["swir2"] = src.read(6)
+
         return {
             "rgb": rgb,
+            "bands": bands_dict,
             "width": src.width,
             "height": src.height,
             "count": count,
@@ -944,64 +966,12 @@ def make_overlay(
 
 def scene_caption(
     data: Dict[str, Any],
-) -> Tuple[str, float]:
-
-    rgb = data["rgb"]
-
-    vegetation_percent = (
-        mask_stats(
-            detect_vegetation(
-                data
-            )
-        )["percent"]
-    )
-
-    built_percent = (
-        mask_stats(
-            detect_builtup(
-                data
-            )
-        )["percent"]
-    )
-
-    mean = rgb.mean(
-        axis=(0, 1)
-    )
-
-    pieces: List[str] = []
-
-    if vegetation_percent > 18:
-
-        pieces.append(
-            "substantial vegetation"
-        )
-
-    if built_percent > 8:
-
-        pieces.append(
-            "textured built-up/constructed regions"
-        )
-
-    if mean[2] > mean[0] + 5:
-
-        pieces.append(
-            "blue-toned areas that may include water"
-        )
-
-    if not pieces:
-
-        pieces.append(
-            "mixed land-cover patterns"
-        )
-
-    return (
-        (
-            "Prototype scene summary: "
-            + ", ".join(pieces)
-            + "."
-        ),
-        0.58,
-    )
+) -> Tuple[str, float, Dict[str, Any]]:
+    """
+    Generate domain-specific remote-sensing captioning adhering to VRSBench & BigEarthNet standards.
+    """
+    caption, conf, diag = generate_rs_caption(data, vlm=RS_VLM)
+    return caption, conf, diag
 
 
 def analyze_single(
@@ -1013,24 +983,31 @@ def analyze_single(
 ) -> Dict[str, Any]:
 
     # --------------------------------------------------------
-    # Captioning baseline
+    # Captioning: GeoRSCLIP Scene Descriptor & Composition
     # --------------------------------------------------------
 
     if task == "captioning":
+        answer, confidence, diag = scene_caption(data)
 
-        answer, confidence = (
-            scene_caption(data)
-        )
+        # Generate a multi-class land-cover visual overlay for captioning evidence
+        overlay_name = None
+        try:
+            seg_overlay, _ = segment_land_cover(path, data, vlm=RS_VLM)
+            overlay_name = f"caption_overlay_{uuid.uuid4().hex[:8]}.png"
+            seg_path = GENERATED_DIR / overlay_name
+            import cv2 as _cv2
+            _cv2.imwrite(str(seg_path), seg_overlay[:, :, ::-1])
+        except Exception as exc:
+            import logging
+            logging.warning(f"Failed to generate caption overlay: {exc}")
 
         return {
             "answer": answer,
             "confidence": confidence,
-            "tool": (
-                "Remote-Sensing Scene "
-                "Caption Prototype"
-            ),
-            "overlay": None,
-            "evidence": None,
+            "tool": "GeoRSCLIP Remote-Sensing Scene Descriptor (VRSBench Standard)",
+            "overlay": overlay_name,
+            "evidence": diag.get("composition", {}),
+            "diagnostics": diag,
         }
 
     # --------------------------------------------------------
@@ -1225,236 +1202,116 @@ def analyze_grounding(
     query: str,
 ) -> Dict[str, Any]:
     """
-    Hybrid remote-sensing grounding.
+    Open-Vocabulary Visual Grounding powered by GeoRSCLIP & Remote-Sensing Spectral Indices.
 
-    The query determines the target feature.
-    A spectral/CV remote-sensing mask provides spatial
-    localization, while the trained RS model remains the
-    semantic VLM component used elsewhere in SatQuery.
-
-    This is an MVP grounding implementation, not a
-    pixel-perfect segmentation model.
+    Uses GeoRSCLIP spatial patch embeddings to localize natural language targets
+    (e.g., "highlight the river", "locate runways", "detect buildings") and draws
+    annotated bounding box overlays with spatial coordinates.
     """
-
     q = query.lower().strip()
-
-    # --------------------------------------------------------
-    # Determine requested feature.
-    # --------------------------------------------------------
-
-    if any(
-        term in q
-        for term in [
-            "water",
-            "reservoir",
-            "lake",
-            "river",
-            "pond",
-            "flood",
-        ]
-    ):
-
-        feature = "water"
-
-    elif any(
-        term in q
-        for term in [
-            "vegetation",
-            "forest",
-            "crop",
-            "agriculture",
-            "green area",
-        ]
-    ):
-
-        feature = "vegetation"
-
-    elif any(
-        term in q
-        for term in [
-            "built-up",
-            "built up",
-            "building",
-            "buildings",
-            "urban",
-            "settlement",
-            "construction",
-        ]
-    ):
-
-        feature = "built-up"
-
-    else:
-
-        feature = infer_feature(
-            query,
-            {},
-        )
-
-    # --------------------------------------------------------
-    # Generate actual pixel-level candidate mask.
-    # --------------------------------------------------------
-
-    mask, method, base_conf = feature_mask(
-        feature,
-        path,
-        data,
-    )
-
-    stats = mask_stats(
-        mask
-    )
-
-    component = _largest_component(
-        mask
-    )
-
-    component_pixels = int(
-        (component > 0).sum()
-    )
-
-    active_mask = mask if (mask > 0).sum() >= 20 else component
-
-    # --------------------------------------------------------
-    # Spatial evidence.
-    # --------------------------------------------------------
-
-    evidence = spatial_evidence(
-        active_mask,
-        data,
-    )
-
-    # --------------------------------------------------------
-    # Bounding box.
-    # --------------------------------------------------------
-
-    ys, xs = np.where(
-        active_mask > 0
-    )
-
+    ai_grounding_used = False
     bounding_box = None
+    feature = "target"
+    method = "GeoRSCLIP Open-Vocabulary Grounding"
+    base_conf = 0.82
 
-    if (
-        len(xs) > 0
-        and len(ys) > 0
-    ):
+    # 1. Check if RS_VLM is available for AI Open-Vocabulary Grounding
+    if RS_VLM is not None and getattr(RS_VLM, "available", False):
+        try:
+            clip_mask, clip_bbox, clip_conf, clip_diag = ground_with_clip(
+                data=data,
+                query=query,
+                vlm=RS_VLM,
+                grid_size=16,
+            )
+            active_mask = clip_mask
+            bounding_box = clip_bbox
+            base_conf = clip_conf
+            feature = clip_diag.get("target_phrase", "target")
+            ai_grounding_used = True
+            method = f"GeoRSCLIP Spatial Activation Map ({clip_diag.get('grid_shape', '16x16')})"
+        except Exception as e:
+            import logging
+            logging.warning(f"GeoRSCLIP grounding failed, falling back to spectral: {e}")
+            ai_grounding_used = False
 
-        bounding_box = {
-            "x1": int(
-                xs.min()
-            ),
-            "y1": int(
-                ys.min()
-            ),
-            "x2": int(
-                xs.max()
-            ),
-            "y2": int(
-                ys.max()
-            ),
-        }
+    # 2. Fallback or physical spectral refinement
+    if not ai_grounding_used:
+        if any(term in q for term in ["water", "reservoir", "lake", "river", "pond", "flood"]):
+            feature = "water"
+        elif any(term in q for term in ["vegetation", "forest", "crop", "agriculture", "green area"]):
+            feature = "vegetation"
+        elif any(term in q for term in ["built-up", "built up", "building", "buildings", "urban", "settlement"]):
+            feature = "built-up"
+        else:
+            feature = infer_feature(query, {})
 
-    # --------------------------------------------------------
-    # Visual evidence.
-    # --------------------------------------------------------
+        mask, method, base_conf = feature_mask(feature, path, data)
+        component = _largest_component(mask)
+        active_mask = mask if (mask > 0).sum() >= 20 else component
 
-    overlay = make_overlay(
-        data["rgb"],
-        active_mask,
-        f"grounding_{feature.replace('-', '_')}",
-    )
+        ys, xs = np.where(active_mask > 0)
+        if len(xs) > 0 and len(ys) > 0:
+            bounding_box = {
+                "x1": int(xs.min()),
+                "y1": int(ys.min()),
+                "x2": int(xs.max()),
+                "y2": int(ys.max()),
+            }
 
-    detected = (
-        component_pixels >= 20
-        and stats["percent"] > 0.5
-    )
+    stats = mask_stats(active_mask)
+    evidence = spatial_evidence(active_mask, data)
+    component = _largest_component(active_mask)
+    component_pixels = int((component > 0).sum())
 
-    # --------------------------------------------------------
-    # Answer.
-    # --------------------------------------------------------
+    # Build visual overlay with bounding box and label tag
+    rgb_base = np.asarray(data["rgb"], dtype=np.uint8).copy()
+    if rgb_base.ndim == 2:
+        rgb_base = np.stack([rgb_base, rgb_base, rgb_base], axis=-1)
+    if rgb_base.shape[2] > 3:
+        rgb_base = rgb_base[..., :3]
+
+    overlay_img = rgb_base.copy().astype(np.float32)
+    # Blend activation highlight
+    highlight_color = np.array([255, 180, 20], dtype=np.float32) if ai_grounding_used else np.array([30, 180, 255], dtype=np.float32)
+    mask_bool = active_mask > 0
+    overlay_img[mask_bool] = 0.50 * highlight_color + 0.50 * overlay_img[mask_bool]
+    overlay_rgb = np.clip(overlay_img, 0, 255).astype(np.uint8)
+
+    # Draw bounding box on overlay if detected
+    if bounding_box is not None:
+        bx1, by1, bx2, by2 = bounding_box["x1"], bounding_box["y1"], bounding_box["x2"], bounding_box["y2"]
+        cv2.rectangle(overlay_rgb, (bx1, by1), (bx2, by2), (0, 240, 255), 2)
+        label_text = f"{feature.title()}"
+        cv2.putText(overlay_rgb, label_text, (bx1, max(18, by1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 240, 255), 1, cv2.LINE_AA)
+
+    overlay_fname = f"grounding_{uuid.uuid4().hex[:8]}.png"
+    overlay_path = GENERATED_DIR / overlay_fname
+    cv2.imwrite(str(overlay_path), overlay_rgb[:, :, ::-1])
+
+    detected = (bounding_box is not None and stats["percent"] > 0.3)
 
     if detected:
-
-        answer = (
-            f"Detected {feature} in the image."
-        )
-
-        location = evidence.get(
-            "location"
-        )
-
+        answer = f"Localized {feature} in the image."
+        location = evidence.get("location")
         if location:
-
-            answer += (
-                f" The main detected "
-                f"region is in the "
-                f"{location} part of "
-                "the image."
-            )
-
-        area = evidence.get(
-            "area_hectares"
-        )
-
-        if area is not None:
-
-            answer += (
-                f" Estimated area: "
-                f"{area:.2f} hectares."
-            )
-
+            answer += f" Primary spatial concentration is in the {location} sector."
+        if bounding_box:
+            answer += f" Bounding Box: [{bounding_box['x1']}, {bounding_box['y1']}, {bounding_box['x2']}, {bounding_box['y2']}]."
     else:
+        answer = f"No prominent {feature} regions localized."
 
-        answer = (
-            f"No strong {feature} "
-            "region was detected."
-        )
-
-    # --------------------------------------------------------
-    # Conservative confidence.
-    # --------------------------------------------------------
-
-    if detected:
-
-        confidence = min(
-            0.92,
-            max(
-                0.35,
-                base_conf
-                + min(
-                    stats["percent"]
-                    / 300.0,
-                    0.12,
-                ),
-            ),
-        )
-
-    else:
-
-        confidence = min(
-            0.50,
-            max(
-                0.20,
-                base_conf * 0.5,
-            ),
-        )
+    confidence = round(float(np.clip(base_conf, 0.40, 0.95)), 2)
 
     return {
         "answer": answer,
-        "confidence": round(
-            confidence,
-            3,
-        ),
-        "tool": (
-            "Hybrid Remote-Sensing Grounding"
-        ),
+        "confidence": confidence,
+        "tool": "GeoRSCLIP Open-Vocabulary Grounding" if ai_grounding_used else "Hybrid Remote-Sensing Grounding",
         "feature": feature,
         "method": method,
         "bounding_box": bounding_box,
-        "location": evidence.get(
-            "location"
-        ),
-        "overlay": overlay,
+        "location": evidence.get("location"),
+        "overlay": overlay_fname,
         "evidence": evidence,
         "mask_stats": stats,
     }
@@ -1616,7 +1473,7 @@ def analyze_change(
             area_sentence = (
                 " Estimated largest-region "
                 f"area: {before_area:.2f} ha "
-                f"→ {after_area:.2f} ha "
+                f"to {after_area:.2f} ha "
                 f"({area_pct:+.1f}%)."
             )
 
@@ -3052,7 +2909,7 @@ async def upload(
         key: value
         for key, value
         in data.items()
-        if key != "rgb"
+        if key not in ("rgb", "bands")
     }
 
     metadata["modality"] = modality
@@ -3064,6 +2921,133 @@ async def upload(
         "preview_url": (
             f"/generated/{preview}"
         ),
+    }
+
+
+class LoadDemoRequest(BaseModel):
+    sample_key: str
+
+
+@app.post("/api/load_demo")
+def load_demo_sample(req: LoadDemoRequest):
+    """
+    Directly register and return demo satellite images without manual file upload.
+    Supported keys:
+    - 'sentinel2'   : Sentinel-2 4-Band Multispectral Tile
+    - 'kolkata'     : High-Resolution Optical Urban Corridor
+    - 'optical_sar' : ISRO Cartosat Optical + RISAT SAR Pair
+    - 'bitemporal'  : Sentinel-2 Bi-Temporal Change Detection Pair (T1 & T2)
+    """
+    demo_registry = {
+        "sentinel2": {
+            "primary": BASE_DIR / "demo_data/bigearthnet/S2_multispectral_patch.tif",
+            "secondary": None,
+            "title": "Sentinel-2 4-Band Multispectral (Red/Green/Blue/NIR)",
+        },
+        "kolkata": {
+            "primary": BASE_DIR / "demo_data/vrsbench/vrsbench_sample_01.tif",
+            "secondary": None,
+            "title": "High-Resolution Optical Urban Corridor (Kolkata)",
+        },
+        "optical_sar": {
+            "primary": BASE_DIR / "demo_data/isro_sac/cartosat_optical_coregistered.tif",
+            "secondary": BASE_DIR / "demo_data/isro_sac/risat_sar_coregistered.tif",
+            "title": "Cartosat Optical + RISAT SAR Co-Registered Pair",
+        },
+        "bitemporal": {
+            "primary": BASE_DIR / "demo_data/cdvqa/cdvqa_time1.tif",
+            "secondary": BASE_DIR / "demo_data/cdvqa/cdvqa_time2.tif",
+            "title": "Bi-Temporal Sentinel-2 Change Detection Pair (T1 & T2)",
+        },
+        "real_sf": {
+            "primary": BASE_DIR / "demo_data/real_world_satellite/real_san_francisco_optical.tif",
+            "secondary": None,
+            "title": "Real Internet Satellite: San Francisco Bay High-Res Optical (COG)",
+        },
+        "real_sentinel": {
+            "primary": BASE_DIR / "demo_data/real_world_satellite/real_sentinel1_sar_alps.tif",
+            "secondary": None,
+            "title": "Real Internet Satellite: Multispectral High-Res Tile (EPSG:32618 UTM)",
+        },
+        # ── Edge-case scenarios ───────────────────────────────────────────
+        "ec_urban": {
+            "primary": BASE_DIR / "demo_data/edge_cases/ec_urban_dense.tif",
+            "secondary": None,
+            "title": "Edge Case: Dense Urban Core (Paris simulation)",
+        },
+        "ec_forest": {
+            "primary": BASE_DIR / "demo_data/edge_cases/ec_forest_dense.tif",
+            "secondary": None,
+            "title": "Edge Case: Tropical Rainforest (Amazon simulation)",
+        },
+        "ec_water": {
+            "primary": BASE_DIR / "demo_data/edge_cases/ec_water_dominant.tif",
+            "secondary": None,
+            "title": "Edge Case: Coastal Open Water (Mediterranean simulation)",
+        },
+        "ec_desert": {
+            "primary": BASE_DIR / "demo_data/edge_cases/ec_desert_bare.tif",
+            "secondary": None,
+            "title": "Edge Case: Arid Desert / Bare Ground (Sahara simulation)",
+        },
+        "ec_agri": {
+            "primary": BASE_DIR / "demo_data/edge_cases/ec_agricultural.tif",
+            "secondary": None,
+            "title": "Edge Case: Agricultural Patchwork (Ukraine farmland simulation)",
+        },
+        "ec_delta": {
+            "primary": BASE_DIR / "demo_data/edge_cases/ec_river_delta.tif",
+            "secondary": None,
+            "title": "Edge Case: River Delta / Wetland (Nile delta simulation)",
+        },
+        "ec_suburban": {
+            "primary": BASE_DIR / "demo_data/edge_cases/ec_suburban_mixed.tif",
+            "secondary": None,
+            "title": "Edge Case: Mixed Suburban (London outskirts simulation)",
+        },
+    }
+
+    if req.sample_key not in demo_registry:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown demo sample key '{req.sample_key}'. Available: {list(demo_registry.keys())}",
+        )
+
+    cfg = demo_registry[req.sample_key]
+    prim_p = cfg["primary"]
+    if not prim_p.exists():
+        raise HTTPException(status_code=404, detail=f"Demo file not found at {prim_p}")
+
+    prim_id = f"demo_prim_{uuid.uuid4().hex[:6]}"
+    prim_data = read_image(prim_p)
+    prim_preview = save_preview(prim_data["rgb"], prim_id)
+    FILES[prim_id] = {"path": prim_p, "data": prim_data, "filename": prim_p.name}
+
+    sec_id = None
+    sec_preview = None
+    sec_meta = None
+    if cfg["secondary"] and cfg["secondary"].exists():
+        sec_p = cfg["secondary"]
+        sec_id = f"demo_sec_{uuid.uuid4().hex[:6]}"
+        sec_data = read_image(sec_p)
+        sec_preview = save_preview(sec_data["rgb"], sec_id)
+        FILES[sec_id] = {"path": sec_p, "data": sec_data, "filename": sec_p.name}
+        sec_meta = {
+            "id": sec_id,
+            "filename": sec_p.name,
+            "preview_url": f"/generated/{sec_preview}",
+            "metadata": {k: v for k, v in sec_data.items() if k not in ("rgb", "bands")},
+        }
+
+    return {
+        "title": cfg["title"],
+        "primary": {
+            "id": prim_id,
+            "filename": prim_p.name,
+            "preview_url": f"/generated/{prim_preview}",
+            "metadata": {k: v for k, v in prim_data.items() if k not in ("rgb", "bands")},
+        },
+        "secondary": sec_meta,
     }
 
 
@@ -3333,6 +3317,93 @@ def analyze(
                 status_code=400,
                 detail=str(exc),
             )
+
+    elif task == "segmentation":
+
+        trace.append(
+            {
+                "step": "Land-Cover Segmenter",
+                "status": "ok",
+                "detail": (
+                    "Multi-class false-colour "
+                    "segmentation: water / vegetation / buildings."
+                ),
+            }
+        )
+
+        try:
+            seg_overlay, seg_stats = segment_land_cover(
+                primary["path"],
+                primary["data"],
+                vlm=RS_VLM,
+            )
+
+            seg_fname = (
+                f"seg_{uuid.uuid4().hex[:8]}.png"
+            )
+            seg_path = GENERATED_DIR / seg_fname
+
+            # seg_overlay is H×W×3 RGB; cv2 expects BGR
+            import cv2 as _cv2
+            _cv2.imwrite(
+                str(seg_path),
+                seg_overlay[:, :, ::-1],
+            )
+
+            water_pct  = seg_stats["water"]["percent"]
+            veg_pct    = seg_stats["vegetation"]["percent"]
+            built_pct  = seg_stats["built_up"]["percent"]
+            other_pct  = seg_stats["unclassified"]["percent"]
+            ai_mode    = seg_stats.get("mode") == "clip_ai_zero_shot"
+
+            tool_name = (
+                "GeoRSCLIP Zero-Shot AI Segmenter (16x16 patch grid)"
+                if ai_mode
+                else "Multi-class Land-Cover Segmenter (NDWI + NDVI + NDBI)"
+            )
+
+            mode_label = "AI (GeoRSCLIP zero-shot)" if ai_mode else "Spectral indices"
+
+            answer = (
+                f"Land-cover map generated using {mode_label}. "
+                f"Detected: Water {water_pct:.1f}% (blue), "
+                f"Vegetation / green fields {veg_pct:.1f}% (green), "
+                f"Buildings / built-up {built_pct:.1f}% (orange), "
+                f"Bare / other {other_pct:.1f}% (tan)."
+            )
+
+            result = {
+                "task": "segmentation",
+                "tool": tool_name,
+                "feature": "multiclass",
+                "answer": answer,
+                "confidence": 0.85 if ai_mode else 0.72,
+                "mask_stats": seg_stats,
+                "evidence": {
+                    "water_percent": water_pct,
+                    "vegetation_percent": veg_pct,
+                    "built_up_percent": built_pct,
+                    "unclassified_percent": other_pct,
+                    "ai_mode": ai_mode,
+                },
+                "overlay_url": f"/generated/{seg_fname}",
+                "execution_trace": trace,
+            }
+
+        except Exception as exc:
+            trace.append(
+                {
+                    "step": "Land-Cover Segmenter",
+                    "status": "error",
+                    "detail": str(exc),
+                }
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=f"Segmentation failed: {exc}",
+            )
+
+        return result
 
     elif task == "grounding":
 

@@ -33,27 +33,28 @@ def understand_query(
         ]
     )
 
-    temporal = (
-        image_count >= 2
-        and any(
-            term in q
-            for term in [
-                "change",
-                "changed",
-                "increase",
-                "increased",
-                "decrease",
-                "decreased",
-                "before",
-                "after",
-                "between",
-                "grown",
-                "grew",
-                "shrunk",
-                "declined",
-                "expanded",
-            ]
-        )
+    temporal = any(
+        term in q
+        for term in [
+            "compare",
+            "comparison",
+            "change",
+            "changed",
+            "increase",
+            "increased",
+            "decrease",
+            "decreased",
+            "before",
+            "after",
+            "between",
+            "grown",
+            "grew",
+            "shrunk",
+            "declined",
+            "expanded",
+            "difference",
+            "delta",
+        ]
     )
 
     cross_modal = (
@@ -85,8 +86,6 @@ def understand_query(
             "scene",
             "scene description",
             "what is visible",
-            "land-cover",
-            "land cover",
         ]
     )
 
@@ -114,13 +113,51 @@ def understand_query(
         )
     )
 
+    # Multi-class land-cover segmentation: colour-map all classes at once
+    # Any of these phrases alone is sufficient to trigger the segmenter.
+    _SEG_TERMS = {
+        "segment", "segmentation",
+        "classify", "classification",
+        "colour map", "color map",
+        "colour code", "color code", "colour-coded",
+        "different colour", "different color",
+        "all classes",
+        "green field", "green fields",
+        "vegetation and water", "vegetation and built",
+        "colour-code", "colour code",
+        "map land cover", "land cover map", "map land-cover",
+        "land-cover map", "land cover classification",
+    }
+    # Two-term phrases: must contain one of these AND one of the class words
+    _CLASS_WORDS = {"water", "vegetation", "building", "buildings", "field",
+                    "fields", "urban", "forest", "bare", "soil", "built-up", "built_up"}
+
+    segmentation = (
+        not captioning
+        and (
+            any(term in q for term in _SEG_TERMS)
+            or (
+                any(term in q for term in ["segment", "classify", "classification", "land use", "colour", "color", "map"])
+                and any(word in q for word in _CLASS_WORDS)
+                and ("water" in q or "vegetation" in q or "built" in q or "bare" in q)
+            )
+            or (
+                # "identify … in different colours" pattern
+                "identify" in q
+                and any(word in q for word in _CLASS_WORDS)
+                and ("colour" in q or "color" in q or "different" in q)
+            )
+        )
+    )
+
     return {
         "spatial": spatial,
         "temporal": temporal,
         "cross_modal": cross_modal,
         "captioning": captioning,
         "grounding": grounding,
-        "vqa": not captioning and not grounding,
+        "segmentation": segmentation,
+        "vqa": not captioning and not grounding and not segmentation,
     }
 
 
@@ -171,7 +208,13 @@ def build_plan(
 
     if image_count == 1:
 
-        if intent["captioning"]:
+        if intent["temporal"]:
+            raise ValueError(
+                "Bi-temporal change analysis requires two images (Time-1 and Time-2). "
+                "Please upload a second image in the 'Second image' slot to compare changes."
+            )
+
+        if intent["captioning"] and not intent["segmentation"]:
 
             task = "captioning"
             feature = "scene"
@@ -179,6 +222,19 @@ def build_plan(
             add_step(
                 steps,
                 "rs_captioner",
+            )
+
+        elif intent["segmentation"]:
+
+            task = "segmentation"
+            feature = "multiclass"
+
+            add_step(
+                steps,
+                "land_cover_segmenter",
+                {
+                    "classes": ["water", "vegetation", "built_up"],
+                },
             )
 
         elif intent["grounding"]:

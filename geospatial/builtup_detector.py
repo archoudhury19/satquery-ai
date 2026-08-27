@@ -50,38 +50,66 @@ def detect_rgb_builtup(
     data: Dict[str, Any],
 ) -> Tuple[np.ndarray, str, float, Dict[str, Any]]:
     """
-    RGB built-up and settlement detection based on edge density,
-    low-to-moderate saturation, and urban structural texture.
+    RGB built-up and settlement detection.
+
+    Urban / built-up structures in satellite imagery typically show:
+    - High edge density (many parallel lines from buildings, roads)
+    - Achromatic to lightly-coloured rooftop / concrete surfaces (low saturation)
+    - Moderate-to-high brightness (concrete, asphalt, roofing materials)
+    - Non-green hue (exclude vegetation hue band)
+
+    Thresholds are calibrated for typical urban satellite imagery (8-bit DN 0-255).
     """
     rgb = np.asarray(data["rgb"], dtype=np.uint8)
     if rgb.ndim != 3 or rgb.shape[2] < 3:
         raise ValueError("RGB built-up detection requires a 3-channel image.")
 
+    # Normalise to 0-255 if needed
+    rgb_f = rgb.astype(np.float32)
+    maxv = float(rgb_f.max()) if rgb_f.size else 1.0
+    if maxv <= 1.5:
+        rgb = np.clip(rgb_f * 255.0, 0, 255).astype(np.uint8)
+    elif maxv > 255.0:
+        rgb = np.clip((rgb_f / maxv) * 255.0, 0, 255).astype(np.uint8)
+
     hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
-    sat = hsv[:, :, 1].astype(np.float32)
-    val = hsv[:, :, 2].astype(np.float32)
+    hue = hsv[:, :, 0].astype(np.float32)   # OpenCV H: [0, 179]
+    sat = hsv[:, :, 1].astype(np.float32)   # [0, 255]
+    val = hsv[:, :, 2].astype(np.float32)   # [0, 255]
+
     gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
-
     edges = cv2.Canny(gray, 50, 130)
-    edge_density = cv2.blur((edges > 0).astype(np.float32), (9, 9))
+    # Use a larger kernel so sparse edges average to a meaningful density
+    edge_density = cv2.blur((edges > 0).astype(np.float32), (15, 15))
 
-    # Built-up structures have high edge density, neutral color (low saturation), and moderate-high reflectance
-    urban_cand = (sat < 75.0) & (val > 65.0) & (edge_density > 0.04)
-    builtup_mask = (urban_cand.astype(np.uint8)) * 255
+    # Exclude green vegetation hue (H 13–42 in OpenCV)
+    not_vegetation_hue = ~((hue >= 10) & (hue <= 45))
+
+    # Built-up: high edge density, low-to-moderate saturation, decent brightness
+    # Raised thresholds compared to previous version to reduce false positives
+    builtup_cand = (
+        not_vegetation_hue
+        & (edge_density > 0.08)        # needs clear structural edges
+        & (sat < 80.0)                 # concrete/rooftop colours are desaturated
+        & (val > 40.0)                 # exclude very dark shadow pixels
+    )
+
+    builtup_mask = builtup_cand.astype(np.uint8) * 255
     builtup_mask = cv2.morphologyEx(builtup_mask, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
-    builtup_mask = cv2.morphologyEx(builtup_mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    builtup_mask = cv2.morphologyEx(builtup_mask, cv2.MORPH_OPEN,  np.ones((3, 3), np.uint8))
 
     active_pixels = int((builtup_mask > 0).sum())
-    builtup_pct = 100.0 * active_pixels / float(max(builtup_mask.size, 1))
+    builtup_pct   = 100.0 * active_pixels / float(max(builtup_mask.size, 1))
 
     diagnostics = {
-        "mode": "rgb_texture",
+        "mode": "rgb_texture_fixed",
         "builtup_pixels": active_pixels,
         "builtup_percent": round(builtup_pct, 2),
+        "edge_density_mean": round(float(edge_density.mean()), 4),
     }
 
-    method = "Urban Structural Texture & Edge Density Baseline"
-    return builtup_mask, method, 0.78, diagnostics
+    method = "RGB Edge Density + Achromatic Gate (fixed)"
+    return builtup_mask, method, 0.68, diagnostics
 
 
 def detect_remote_sensing_builtup(

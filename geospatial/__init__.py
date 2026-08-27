@@ -29,6 +29,10 @@ from geospatial.change_detector import (
     compute_bitemporal_change,
     make_bitemporal_overlay,
 )
+from geospatial.multi_class_segmenter import segment_land_cover
+from geospatial.clip_segmenter import segment_with_clip
+from geospatial.clip_grounding import ground_with_clip
+from geospatial.scene_captioner import generate_rs_caption
 
 __all__ = [
     "detect_remote_sensing_water",
@@ -48,4 +52,8 @@ __all__ = [
     "fuse_cross_modal_masks",
     "compute_bitemporal_change",
     "make_bitemporal_overlay",
+    "segment_land_cover",
+    "segment_with_clip",
+    "ground_with_clip",
+    "generate_rs_caption",
 ]

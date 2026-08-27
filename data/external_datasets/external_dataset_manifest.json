@@ -1,0 +1,219 @@
+{
+  "dataset_name": "SatQuery External Remote Sensing Training Corpus",
+  "standards": [
+    "BigEarthNet.txt (arXiv:2603.29630)",
+    "VRSBench",
+    "RSVQA"
+  ],
+  "total_samples": 5,
+  "total_qa_pairs": 35,
+  "samples": [
+    {
+      "sample_id": "ben_vrs_0001",
+      "image_path": "C:\\SatQueryMVP\\satquery-ai\\demo_data\\bigearthnet\\S2_multispectral_patch.tif",
+      "sensor_modality": "Sentinel-2 Multispectral + Sentinel-1 SAR",
+      "scene_description": "Sentinel-2 Multispectral (B2/B3/B4/B8)",
+      "corine_land_cover_classes": [
+        "Water bodies",
+        "Pastures",
+        "Arable land"
+      ],
+      "qa_pairs": [
+        {
+          "question": "Is this an urban or rural area?",
+          "answer": "rural"
+        },
+        {
+          "question": "Is this area urban or rural?",
+          "answer": "rural"
+        },
+        {
+          "question": "Is there water or a reservoir present?",
+          "answer": "yes"
+        },
+        {
+          "question": "Is there a river or water body?",
+          "answer": "yes"
+        },
+        {
+          "question": "Is vegetation or agricultural land visible?",
+          "answer": "yes"
+        },
+        {
+          "question": "Are there green fields or crops?",
+          "answer": "yes"
+        },
+        {
+          "question": "Are buildings or urban settlements present?",
+          "answer": "no"
+        }
+      ],
+      "source_benchmark": "BigEarthNet.txt (arXiv:2603.29630) / VRSBench"
+    },
+    {
+      "sample_id": "ben_vrs_0002",
+      "image_path": "C:\\SatQueryMVP\\satquery-ai\\demo_data\\vrsbench\\vrsbench_sample_01.tif",
+      "sensor_modality": "High-Res Optical",
+      "scene_description": "High-Resolution Optical Urban Corridor",
+      "corine_land_cover_classes": [
+        "Urban fabric",
+        "Water bodies",
+        "Industrial or commercial units"
+      ],
+      "qa_pairs": [
+        {
+          "question": "Is this an urban or rural area?",
+          "answer": "urban"
+        },
+        {
+          "question": "Is this area urban or rural?",
+          "answer": "urban"
+        },
+        {
+          "question": "Is there water or a reservoir present?",
+          "answer": "yes"
+        },
+        {
+          "question": "Is there a river or water body?",
+          "answer": "yes"
+        },
+        {
+          "question": "Is vegetation or agricultural land visible?",
+          "answer": "no"
+        },
+        {
+          "question": "Are there green fields or crops?",
+          "answer": "no"
+        },
+        {
+          "question": "Are buildings or urban settlements present?",
+          "answer": "yes"
+        }
+      ],
+      "source_benchmark": "BigEarthNet.txt (arXiv:2603.29630) / VRSBench"
+    },
+    {
+      "sample_id": "ben_vrs_0003",
+      "image_path": "C:\\SatQueryMVP\\satquery-ai\\demo_data\\isro_sac\\cartosat_optical_coregistered.tif",
+      "sensor_modality": "High-Res Optical",
+      "scene_description": "Cartosat High-Res Optical Tile",
+      "corine_land_cover_classes": [
+        "Urban fabric",
+        "Complex cultivation patterns"
+      ],
+      "qa_pairs": [
+        {
+          "question": "Is this an urban or rural area?",
+          "answer": "urban"
+        },
+        {
+          "question": "Is this area urban or rural?",
+          "answer": "urban"
+        },
+        {
+          "question": "Is there water or a reservoir present?",
+          "answer": "no"
+        },
+        {
+          "question": "Is there a river or water body?",
+          "answer": "no"
+        },
+        {
+          "question": "Is vegetation or agricultural land visible?",
+          "answer": "no"
+        },
+        {
+          "question": "Are there green fields or crops?",
+          "answer": "no"
+        },
+        {
+          "question": "Are buildings or urban settlements present?",
+          "answer": "yes"
+        }
+      ],
+      "source_benchmark": "BigEarthNet.txt (arXiv:2603.29630) / VRSBench"
+    },
+    {
+      "sample_id": "ben_vrs_0004",
+      "image_path": "C:\\SatQueryMVP\\satquery-ai\\demo_data\\cdvqa\\cdvqa_time1.tif",
+      "sensor_modality": "High-Res Optical",
+      "scene_description": "Sentinel-2 Multi-temporal Tile T1",
+      "corine_land_cover_classes": [
+        "Arable land",
+        "Broad-leaved forest"
+      ],
+      "qa_pairs": [
+        {
+          "question": "Is this an urban or rural area?",
+          "answer": "rural"
+        },
+        {
+          "question": "Is this area urban or rural?",
+          "answer": "rural"
+        },
+        {
+          "question": "Is there water or a reservoir present?",
+          "answer": "no"
+        },
+        {
+          "question": "Is there a river or water body?",
+          "answer": "no"
+        },
+        {
+          "question": "Is vegetation or agricultural land visible?",
+          "answer": "yes"
+        },
+        {
+          "question": "Are there green fields or crops?",
+          "answer": "yes"
+        },
+        {
+          "question": "Are buildings or urban settlements present?",
+          "answer": "no"
+        }
+      ],
+      "source_benchmark": "BigEarthNet.txt (arXiv:2603.29630) / VRSBench"
+    },
+    {
+      "sample_id": "ben_vrs_0005",
+      "image_path": "C:\\SatQueryMVP\\satquery-ai\\demo_data\\cdvqa\\cdvqa_time2.tif",
+      "sensor_modality": "High-Res Optical",
+      "scene_description": "Sentinel-2 Multi-temporal Tile T2",
+      "corine_land_cover_classes": [
+        "Arable land",
+        "Water bodies"
+      ],
+      "qa_pairs": [
+        {
+          "question": "Is this an urban or rural area?",
+          "answer": "rural"
+        },
+        {
+          "question": "Is this area urban or rural?",
+          "answer": "rural"
+        },
+        {
+          "question": "Is there water or a reservoir present?",
+          "answer": "yes"
+        },
+        {
+          "question": "Is there a river or water body?",
+          "answer": "yes"
+        },
+        {
+          "question": "Is vegetation or agricultural land visible?",
+          "answer": "yes"
+        },
+        {
+          "question": "Are there green fields or crops?",
+          "answer": "yes"
+        },
+        {
+          "question": "Are buildings or urban settlements present?",
+          "answer": "no"
+        }
+      ],
+      "source_benchmark": "BigEarthNet.txt (arXiv:2603.29630) / VRSBench"
+    }
+  ]
+}

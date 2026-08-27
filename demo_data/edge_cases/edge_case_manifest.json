@@ -1,0 +1,76 @@
+{
+  "edge_cases": [
+    {
+      "id": "ec_urban_dense",
+      "title": "Dense Urban Core",
+      "description": "High built-up, low veg, minimal water",
+      "path": "C:\\SatQueryMVP\\satquery-ai\\demo_data\\edge_cases\\ec_urban_dense.tif",
+      "expected": {
+        "expected_built_up_pct_min": 60,
+        "expected_veg_pct_max": 15
+      }
+    },
+    {
+      "id": "ec_forest_dense",
+      "title": "Dense Tropical Forest",
+      "description": "High veg, no water, no built-up",
+      "path": "C:\\SatQueryMVP\\satquery-ai\\demo_data\\edge_cases\\ec_forest_dense.tif",
+      "expected": {
+        "expected_veg_pct_min": 70,
+        "expected_built_up_pct_max": 5
+      }
+    },
+    {
+      "id": "ec_water_dominant",
+      "title": "Open Water / Coastal",
+      "description": "Dominant water, thin coastal strip",
+      "path": "C:\\SatQueryMVP\\satquery-ai\\demo_data\\edge_cases\\ec_water_dominant.tif",
+      "expected": {
+        "expected_water_pct_min": 70,
+        "expected_veg_pct_max": 10
+      }
+    },
+    {
+      "id": "ec_desert_bare",
+      "title": "Arid Desert / Bare Ground",
+      "description": "High bare, no veg, no water",
+      "path": "C:\\SatQueryMVP\\satquery-ai\\demo_data\\edge_cases\\ec_desert_bare.tif",
+      "expected": {
+        "expected_bare_pct_min": 70,
+        "expected_veg_pct_max": 5,
+        "expected_water_pct_max": 2
+      }
+    },
+    {
+      "id": "ec_agricultural",
+      "title": "Agricultural Patchwork",
+      "description": "Mixed crop+fallow+rural settlement \u2014 field edge false-built-up test",
+      "path": "C:\\SatQueryMVP\\satquery-ai\\demo_data\\edge_cases\\ec_agricultural.tif",
+      "expected": {
+        "expected_built_up_pct_max": 12,
+        "expected_veg_pct_min": 25
+      }
+    },
+    {
+      "id": "ec_river_delta",
+      "title": "River Delta / Wetland",
+      "description": "Turbid sediment water classification edge case",
+      "path": "C:\\SatQueryMVP\\satquery-ai\\demo_data\\edge_cases\\ec_river_delta.tif",
+      "expected": {
+        "expected_water_pct_min": 20,
+        "expected_veg_pct_min": 20
+      }
+    },
+    {
+      "id": "ec_suburban_mixed",
+      "title": "Mixed Suburban",
+      "description": "Green gardens + river inside urban area",
+      "path": "C:\\SatQueryMVP\\satquery-ai\\demo_data\\edge_cases\\ec_suburban_mixed.tif",
+      "expected": {
+        "expected_veg_pct_min": 20,
+        "expected_water_pct_min": 5,
+        "expected_built_up_pct_min": 20
+      }
+    }
+  ]
+}

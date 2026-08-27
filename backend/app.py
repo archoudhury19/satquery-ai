@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import json
-import math
-import os
 import re
 import uuid
 from pathlib import Path
@@ -16,23 +13,86 @@ from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 from pyproj import CRS, Transformer
 from rasterio.features import shapes
-from shapely.geometry import shape, mapping
+from shapely.geometry import mapping, shape
 from shapely.ops import transform as shapely_transform
 
+from agent.planner import build_plan
+from geospatial import (
+    detect_remote_sensing_water,
+    detect_remote_sensing_vegetation,
+    detect_remote_sensing_builtup,
+    calibrate_sar_db,
+    detect_sar_water_backscatter,
+    detect_sar_builtup_backscatter,
+    align_mask_to_reference,
+    fuse_cross_modal_masks,
+    compute_bitemporal_change,
+    make_bitemporal_overlay,
+    segment_land_cover,
+    ground_with_clip,
+    generate_rs_caption,
+)
+from models.rs_vlm import RemoteSensingVLM
+
+# ============================================================
+# CPU INFERENCE OPTIMIZATIONS (Gap 3 fix)
+# Maximize throughput on CPU without GPU hardware.
+# ============================================================
+import torch
+import os
+# Use all available logical CPU cores for intra-op parallelism
+_cpu_count = os.cpu_count() or 4
+torch.set_num_threads(_cpu_count)
+torch.set_num_interop_threads(max(2, _cpu_count // 2))
+# Disable gradient tracking globally — inference-only app
+torch.set_grad_enabled(False)
+
+
+
+# ============================================================
+# PATHS / CONFIG
+# ============================================================
+
 BASE_DIR = Path(__file__).resolve().parent.parent
+
 UPLOAD_DIR = BASE_DIR / "uploads"
 GENERATED_DIR = BASE_DIR / "generated"
 FRONTEND_DIR = BASE_DIR / "frontend"
-for p in [UPLOAD_DIR, GENERATED_DIR]:
-    p.mkdir(parents=True, exist_ok=True)
 
-ALLOWED_EXT = {".tif", ".tiff", ".png", ".jpg", ".jpeg"}
+UPLOAD_DIR.mkdir(
+    parents=True,
+    exist_ok=True,
+)
 
-app = FastAPI(title="SatQuery AI MVP", version="0.1.0")
+GENERATED_DIR.mkdir(
+    parents=True,
+    exist_ok=True,
+)
 
+ALLOWED_EXT = {
+    ".tif",
+    ".tiff",
+    ".png",
+    ".jpg",
+    ".jpeg",
+}
+
+app = FastAPI(
+    title="SatQuery AI MVP",
+    version="0.7.0",
+)
+
+# Load the local adapted RS model once.
+RS_VLM = RemoteSensingVLM()
+
+# MVP in-memory state.
 FILES: Dict[str, Dict[str, Any]] = {}
 CONTEXT: Dict[str, Dict[str, Any]] = {}
 
+
+# ============================================================
+# REQUEST MODEL
+# ============================================================
 
 class AnalyzeRequest(BaseModel):
     primary_id: str
@@ -41,312 +101,1090 @@ class AnalyzeRequest(BaseModel):
     conversation_id: Optional[str] = None
 
 
-def _normalize_band(arr: np.ndarray) -> np.ndarray:
-    a = arr.astype(np.float32)
+# ============================================================
+# IMAGE / RASTER UTILITIES
+# ============================================================
+
+def _normalize_band(
+    arr: np.ndarray,
+) -> np.ndarray:
+    """
+    Robust 2%-98% percentile normalization for display.
+    """
+
+    a = arr.astype(
+        np.float32
+    )
+
     finite = np.isfinite(a)
+
     if not finite.any():
-        return np.zeros_like(a, dtype=np.uint8)
-    lo, hi = np.percentile(a[finite], [2, 98])
+        return np.zeros_like(
+            a,
+            dtype=np.uint8,
+        )
+
+    lo, hi = np.percentile(
+        a[finite],
+        [2, 98],
+    )
+
     if hi <= lo:
-        lo, hi = float(np.nanmin(a)), float(np.nanmax(a))
+        lo = float(
+            np.nanmin(a)
+        )
+        hi = float(
+            np.nanmax(a)
+        )
+
     if hi <= lo:
-        return np.zeros_like(a, dtype=np.uint8)
-    a = np.clip((a - lo) / (hi - lo), 0, 1)
-    return (a * 255).astype(np.uint8)
+        return np.zeros_like(
+            a,
+            dtype=np.uint8,
+        )
+
+    a = np.clip(
+        (a - lo) / (hi - lo),
+        0.0,
+        1.0,
+    )
+
+    return (
+        a * 255
+    ).astype(
+        np.uint8
+    )
 
 
-def _read_raster(path: Path) -> Dict[str, Any]:
+def _read_raster(
+    path: Path,
+) -> Dict[str, Any]:
+    """
+    Read GeoTIFF/TIFF and collect:
+      - RGB preview
+      - dimensions
+      - band count
+      - CRS
+      - transform
+      - bounds
+      - band descriptions
+      - driver
+      - georeferencing state
+    """
+
     with rasterio.open(path) as src:
+
         count = src.count
-        desc = [d or "" for d in src.descriptions]
-        # preview: first 3 bands, or repeat one band
+
+        descriptions = [
+            description or ""
+            for description
+            in src.descriptions
+        ]
+
         if count >= 3:
-            chans = [_normalize_band(src.read(i)) for i in (1, 2, 3)]
-            rgb = np.stack(chans, axis=-1)
+            raw_bands = src.read([1, 2, 3])
+            # If raster is uint8, preserve exact radiometric RGB values without distorting color balance
+            if src.dtypes[0] == 'uint8':
+                rgb = np.moveaxis(raw_bands, 0, -1).astype(np.uint8)
+            else:
+                # Joint normalization across all 3 bands to preserve relative R/G/B ratios
+                a = raw_bands.astype(np.float32)
+                finite = np.isfinite(a)
+                if finite.any():
+                    lo, hi = np.percentile(a[finite], [2, 98])
+                    if hi <= lo:
+                        lo, hi = float(np.nanmin(a)), float(np.nanmax(a))
+                    if hi > lo:
+                        a = np.clip((a - lo) / (hi - lo), 0.0, 1.0) * 255.0
+                    rgb = np.moveaxis(a.astype(np.uint8), 0, -1)
+                else:
+                    rgb = np.zeros((src.height, src.width, 3), dtype=np.uint8)
         else:
-            b = _normalize_band(src.read(1))
-            rgb = np.stack([b, b, b], axis=-1)
+            band = _normalize_band(
+                src.read(1)
+            )
+            rgb = np.stack(
+                [band, band, band],
+                axis=-1,
+            )
+
+        bands_dict = {}
+        if count >= 4:
+            bands_dict["red"] = src.read(1)
+            bands_dict["green"] = src.read(2)
+            bands_dict["blue"] = src.read(3)
+            bands_dict["nir"] = src.read(4)
+            if count >= 6:
+                bands_dict["swir1"] = src.read(5)
+                bands_dict["swir2"] = src.read(6)
+
         return {
             "rgb": rgb,
+            "bands": bands_dict,
             "width": src.width,
             "height": src.height,
             "count": count,
-            "crs": src.crs.to_string() if src.crs else None,
-            "transform": tuple(src.transform),
-            "bounds": [src.bounds.left, src.bounds.bottom, src.bounds.right, src.bounds.top],
-            "descriptions": desc,
+            "crs": (
+                src.crs.to_string()
+                if src.crs
+                else None
+            ),
+            "transform": tuple(
+                src.transform
+            ),
+            "bounds": [
+                src.bounds.left,
+                src.bounds.bottom,
+                src.bounds.right,
+                src.bounds.top,
+            ],
+            "descriptions": descriptions,
+            "dtypes": list(src.dtypes),
             "driver": src.driver,
-            "is_georeferenced": bool(src.crs),
+            "is_georeferenced": bool(
+                src.crs
+            ),
         }
 
 
-def _read_standard(path: Path) -> Dict[str, Any]:
-    bgr = cv2.imread(str(path), cv2.IMREAD_COLOR)
+def _read_standard(
+    path: Path,
+) -> Dict[str, Any]:
+    """
+    Read PNG/JPEG as RGB.
+    """
+
+    bgr = cv2.imread(
+        str(path),
+        cv2.IMREAD_COLOR,
+    )
+
     if bgr is None:
-        raise ValueError("Could not decode image")
-    rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
-    h, w = rgb.shape[:2]
+        raise ValueError(
+            "Could not decode image."
+        )
+
+    rgb = cv2.cvtColor(
+        bgr,
+        cv2.COLOR_BGR2RGB,
+    )
+
+    height, width = rgb.shape[:2]
+
     return {
         "rgb": rgb,
-        "width": w,
-        "height": h,
+        "width": width,
+        "height": height,
         "count": 3,
         "crs": None,
         "transform": None,
         "bounds": None,
-        "descriptions": ["R", "G", "B"],
-        "driver": path.suffix.lower().lstrip("."),
+        "descriptions": [
+            "R",
+            "G",
+            "B",
+        ],
+        "dtypes": [
+            "uint8",
+            "uint8",
+            "uint8",
+        ],
+        "driver": (
+            path.suffix
+            .lower()
+            .lstrip(".")
+        ),
         "is_georeferenced": False,
     }
 
 
-def read_image(path: Path) -> Dict[str, Any]:
-    if path.suffix.lower() in {".tif", ".tiff"}:
+def read_image(
+    path: Path,
+) -> Dict[str, Any]:
+
+    suffix = path.suffix.lower()
+
+    if suffix in {
+        ".tif",
+        ".tiff",
+    }:
         return _read_raster(path)
-    return _read_standard(path)
+
+    if suffix in {
+        ".png",
+        ".jpg",
+        ".jpeg",
+    }:
+        return _read_standard(path)
+
+    raise ValueError(
+        f"Unsupported image format: {suffix}"
+    )
 
 
-def save_preview(rgb: np.ndarray, stem: str) -> str:
-    out = GENERATED_DIR / f"{stem}_preview.png"
-    cv2.imwrite(str(out), cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
-    return out.name
+def save_preview(
+    rgb: np.ndarray,
+    stem: str,
+) -> str:
+
+    output = (
+        GENERATED_DIR
+        / f"{stem}_preview.png"
+    )
+
+    cv2.imwrite(
+        str(output),
+        cv2.cvtColor(
+            rgb,
+            cv2.COLOR_RGB2BGR,
+        ),
+    )
+
+    return output.name
 
 
-def _find_band_index(descriptions: List[str], keys: List[str]) -> Optional[int]:
-    for idx, d in enumerate(descriptions, start=1):
-        s = d.lower().replace("_", " ").replace("-", " ")
-        if any(k in s for k in keys):
-            return idx
+def _find_band_index(
+    descriptions: List[str],
+    keys: List[str],
+) -> Optional[int]:
+
+    for index, description in enumerate(
+        descriptions,
+        start=1,
+    ):
+
+        value = (
+            description
+            .lower()
+            .replace("_", " ")
+            .replace("-", " ")
+        )
+
+        if any(
+            key in value
+            for key in keys
+        ):
+            return index
+
     return None
 
 
-def detect_water(path: Path, data: Dict[str, Any]) -> Tuple[np.ndarray, str, float]:
-    """Returns binary mask, method label, threshold/confidence proxy."""
-    # Prefer real NDWI when band descriptions let us identify green + NIR.
-    if path.suffix.lower() in {".tif", ".tiff"}:
-        try:
-            with rasterio.open(path) as src:
-                desc = [d or "" for d in src.descriptions]
-                green_i = _find_band_index(desc, ["b03", "green"])
-                nir_i = _find_band_index(desc, ["b08", "nir", "near infrared"])
-                if green_i and nir_i:
-                    g = src.read(green_i).astype(np.float32)
-                    n = src.read(nir_i).astype(np.float32)
-                    ndwi = (g - n) / (g + n + 1e-6)
-                    mask = (ndwi > 0.10).astype(np.uint8) * 255
-                    kernel = np.ones((5, 5), np.uint8)
-                    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-                    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-                    return mask, "NDWI (Green/NIR)", 0.90
-        except Exception:
-            pass
+# ============================================================
+# FEATURE DETECTION
+# ============================================================
+
+def detect_water(
+    path: Path,
+    data: Dict[str, Any],
+) -> Tuple[np.ndarray, str, float]:
+    """
+    Robust remote-sensing water detection engine.
+
+    Delegates to geospatial.water_detector.detect_remote_sensing_water,
+    which provides:
+    - Multispectral Sentinel-2 band resolution (Green B03, NIR B08, Red B04, Blue B02)
+    - McFeeters NDWI + NDVI vegetation suppression + NIR absorption gating
+    - Dynamic Otsu / zero-crossing thresholding
+    - Robust RGB fallback when multispectral bands are absent
+    """
+    mask, method, conf, _ = detect_remote_sensing_water(path, data)
+    return mask, method, conf
+
+
+def detect_vegetation(
+    data: Dict[str, Any],
+) -> np.ndarray:
+
+    rgb = data["rgb"].astype(
+        np.int16
+    )
+
+    red = rgb[:, :, 0]
+    green = rgb[:, :, 1]
+    blue = rgb[:, :, 2]
+
+    mask = (
+        (green > red + 12)
+        & (green > blue + 8)
+    ).astype(
+        np.uint8
+    ) * 255
+
+    return cv2.morphologyEx(
+        mask,
+        cv2.MORPH_OPEN,
+        np.ones(
+            (3, 3),
+            np.uint8,
+        ),
+    )
+
+
+def detect_builtup(
+    data: Dict[str, Any],
+) -> np.ndarray:
 
     rgb = data["rgb"]
-    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
-    r, g, b = [rgb[:, :, i].astype(np.int16) for i in range(3)]
-    # A pragmatic RGB preview heuristic: blue/cyan dominance + dark smooth water.
-    blueish = (b > r + 8) & (b >= g - 6) & (hsv[:, :, 1] > 35)
-    dark_water = (np.mean(rgb, axis=2) < 75) & (hsv[:, :, 1] < 90)
-    mask = (blueish | dark_water).astype(np.uint8) * 255
-    kernel = np.ones((5, 5), np.uint8)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-    return mask, "RGB water heuristic", 0.62
+
+    hsv = cv2.cvtColor(
+        rgb,
+        cv2.COLOR_RGB2HSV,
+    )
+
+    gray = cv2.cvtColor(
+        rgb,
+        cv2.COLOR_RGB2GRAY,
+    )
+
+    edges = cv2.Canny(
+        gray,
+        70,
+        150,
+    )
+
+    edge_density = cv2.blur(
+        (edges > 0).astype(
+            np.float32
+        ),
+        (9, 9),
+    )
+
+    mask = (
+        (hsv[:, :, 1] < 65)
+        & (hsv[:, :, 2] > 75)
+        & (edge_density > 0.05)
+    ).astype(
+        np.uint8
+    ) * 255
+
+    return cv2.morphologyEx(
+        mask,
+        cv2.MORPH_CLOSE,
+        np.ones(
+            (5, 5),
+            np.uint8,
+        ),
+    )
 
 
-def detect_vegetation(data: Dict[str, Any]) -> np.ndarray:
-    rgb = data["rgb"].astype(np.int16)
-    r, g, b = [rgb[:, :, i] for i in range(3)]
-    mask = ((g > r + 12) & (g > b + 8)).astype(np.uint8) * 255
-    return cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+def feature_mask(
+    feature: str,
+    path: Path,
+    data: Dict[str, Any],
+) -> Tuple[
+    np.ndarray,
+    str,
+    float,
+]:
 
-
-def detect_builtup(data: Dict[str, Any]) -> np.ndarray:
-    rgb = data["rgb"]
-    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
-    gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
-    edges = cv2.Canny(gray, 70, 150)
-    edge_density = cv2.blur((edges > 0).astype(np.float32), (9, 9))
-    mask = ((hsv[:, :, 1] < 65) & (hsv[:, :, 2] > 75) & (edge_density > 0.05)).astype(np.uint8) * 255
-    return cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
-
-
-def feature_mask(feature: str, path: Path, data: Dict[str, Any]) -> Tuple[np.ndarray, str, float]:
     if feature == "water":
-        return detect_water(path, data)
+        mask, method, conf, _ = detect_remote_sensing_water(path, data)
+        return mask, method, conf
+
     if feature == "vegetation":
-        return detect_vegetation(data), "RGB vegetation heuristic", 0.60
+        mask, method, conf, _ = detect_remote_sensing_vegetation(path, data)
+        return mask, method, conf
+
     if feature == "built-up":
-        return detect_builtup(data), "Texture + low-saturation heuristic", 0.56
-    return detect_water(path, data)
+        mask, method, conf, _ = detect_remote_sensing_builtup(path, data)
+        return mask, method, conf
+
+    mask, method, conf, _ = detect_remote_sensing_water(path, data)
+    return mask, method, conf
 
 
-def infer_feature(query: str, ctx: Dict[str, Any]) -> str:
+def infer_feature(
+    query: str,
+    context: Dict[str, Any],
+) -> str:
+
     q = query.lower()
-    if any(k in q for k in ["water", "reservoir", "lake", "river", "pond", "flood"]):
+
+    if any(
+        key in q
+        for key in [
+            "water",
+            "reservoir",
+            "lake",
+            "river",
+            "pond",
+            "flood",
+        ]
+    ):
         return "water"
-    if any(k in q for k in ["built", "building", "urban", "construction", "settlement"]):
+
+    if any(
+        key in q
+        for key in [
+            "built",
+            "building",
+            "urban",
+            "construction",
+            "settlement",
+        ]
+    ):
         return "built-up"
-    if any(k in q for k in ["vegetation", "forest", "green", "crop", "agriculture"]):
+
+    if any(
+        key in q
+        for key in [
+            "vegetation",
+            "forest",
+            "green",
+            "crop",
+            "agriculture",
+        ]
+    ):
         return "vegetation"
-    if re.search(r"\b(it|this|that|same region|same area)\b", q) and ctx.get("last_feature"):
-        return ctx["last_feature"]
-    return ctx.get("last_feature", "water")
+
+    if re.search(
+        r"\b(it|this|that|same region|same area)\b",
+        q,
+    ):
+
+        if context.get(
+            "last_feature"
+        ):
+            return context[
+                "last_feature"
+            ]
+
+    return context.get(
+        "last_feature",
+        "water",
+    )
 
 
-def route_task(query: str, has_second: bool) -> str:
-    q = query.lower()
-    change_words = ["change", "changed", "increase", "decrease", "grown", "shrunk", "before", "after", "last year", "between", "same"]
-    cross_words = ["sar", "optical", "cross-modal", "cross modal", "both images", "together", "multimodal"]
-    if has_second and any(k in q for k in cross_words):
-        return "cross_modal"
-    if has_second and any(k in q for k in change_words):
-        return "change_analysis"
-    if q.startswith("describe") or any(k in q for k in ["caption", "scene description", "what is visible"]):
-        return "captioning"
-    if any(k in q for k in ["highlight", "where", "locate", "region"]):
-        return "grounding"
-    return "vqa"
+# ============================================================
+# SPATIAL EVIDENCE
+# ============================================================
 
+def mask_stats(
+    mask: np.ndarray,
+) -> Dict[str, Any]:
 
-def mask_stats(mask: np.ndarray) -> Dict[str, Any]:
     total = mask.size
-    on = int((mask > 0).sum())
-    return {"pixels": on, "fraction": on / total if total else 0.0, "percent": 100.0 * on / total if total else 0.0}
+
+    active = int(
+        (mask > 0).sum()
+    )
+
+    fraction = (
+        active / total
+        if total
+        else 0.0
+    )
+
+    return {
+        "pixels": active,
+        "fraction": fraction,
+        "percent": 100.0 * fraction,
+    }
 
 
-def _largest_component(mask: np.ndarray) -> np.ndarray:
-    n, labels, stats, _ = cv2.connectedComponentsWithStats((mask > 0).astype(np.uint8), 8)
-    if n <= 1:
-        return np.zeros_like(mask)
-    idx = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
-    return (labels == idx).astype(np.uint8) * 255
+def _largest_component(
+    mask: np.ndarray,
+) -> np.ndarray:
+
+    count, labels, stats, _ = (
+        cv2.connectedComponentsWithStats(
+            (mask > 0).astype(
+                np.uint8
+            ),
+            8,
+        )
+    )
+
+    if count <= 1:
+        return np.zeros_like(
+            mask
+        )
+
+    index = 1 + int(
+        np.argmax(
+            stats[
+                1:,
+                cv2.CC_STAT_AREA,
+            ]
+        )
+    )
+
+    return (
+        labels == index
+    ).astype(
+        np.uint8
+    ) * 255
 
 
-def spatial_evidence(mask: np.ndarray, data: Dict[str, Any]) -> Dict[str, Any]:
-    comp = _largest_component(mask)
-    if (comp > 0).sum() < 20:
-        return {"available": False}
+def spatial_evidence(
+    mask: np.ndarray,
+    data: Dict[str, Any],
+) -> Dict[str, Any]:
 
-    ys, xs = np.where(comp > 0)
-    cx_px, cy_px = float(xs.mean()), float(ys.mean())
-    loc_x = "west" if cx_px < data["width"] / 3 else "east" if cx_px > 2 * data["width"] / 3 else "central"
-    loc_y = "north" if cy_px < data["height"] / 3 else "south" if cy_px > 2 * data["height"] / 3 else "central"
-    location = "central" if loc_x == "central" and loc_y == "central" else f"{loc_y}-{loc_x}".replace("central-", "").replace("-central", "")
+    component = _largest_component(
+        mask
+    )
+
+    if (
+        (component > 0).sum()
+        < 20
+    ):
+        return {
+            "available": False,
+        }
+
+    ys, xs = np.where(
+        component > 0
+    )
+
+    cx_px = float(
+        xs.mean()
+    )
+
+    cy_px = float(
+        ys.mean()
+    )
+
+    location_x = (
+        "west"
+        if cx_px < data["width"] / 3
+        else "east"
+        if cx_px
+        > 2 * data["width"] / 3
+        else "central"
+    )
+
+    location_y = (
+        "north"
+        if cy_px < data["height"] / 3
+        else "south"
+        if cy_px
+        > 2 * data["height"] / 3
+        else "central"
+    )
+
+    if (
+        location_x == "central"
+        and location_y == "central"
+    ):
+        location = "central"
+
+    elif location_x == "central":
+        location = location_y
+
+    elif location_y == "central":
+        location = location_x
+
+    else:
+        location = (
+            f"{location_y}-{location_x}"
+        )
+
+    x1 = int(
+        xs.min()
+    )
+
+    y1 = int(
+        ys.min()
+    )
+
+    x2 = int(
+        xs.max()
+    )
+
+    y2 = int(
+        ys.max()
+    )
 
     evidence: Dict[str, Any] = {
         "available": True,
-        "pixel_centroid": {"x": round(cx_px, 1), "y": round(cy_px, 1)},
+
+        "pixel_centroid": {
+            "x": round(
+                cx_px,
+                1,
+            ),
+            "y": round(
+                cy_px,
+                1,
+            ),
+        },
+
+        "pixel_bounding_box": {
+            "x1": x1,
+            "y1": y1,
+            "x2": x2,
+            "y2": y2,
+        },
+
         "location": location,
+
         "area_hectares": None,
+
         "centroid_wgs84": None,
+
         "geojson": None,
     }
 
-    if not data.get("is_georeferenced"):
+    if not data.get(
+        "is_georeferenced"
+    ):
         return evidence
 
-    transform_tuple = data.get("transform")
-    crs_text = data.get("crs")
-    if not transform_tuple or not crs_text:
+    transform_tuple = data.get(
+        "transform"
+    )
+
+    crs_text = data.get(
+        "crs"
+    )
+
+    if (
+        not transform_tuple
+        or not crs_text
+    ):
         return evidence
 
     from affine import Affine
-    aff = Affine(*transform_tuple[:6])
-    geoms = []
-    for geom, value in shapes((comp > 0).astype(np.uint8), mask=comp > 0, transform=aff):
-        if value == 1:
-            geoms.append(shape(geom))
-    if not geoms:
-        return evidence
-    geom = max(geoms, key=lambda g: g.area)
 
-    src_crs = CRS.from_user_input(crs_text)
+    affine_transform = Affine(
+        *transform_tuple[:6]
+    )
+
+    geometries = []
+
+    for geom, value in shapes(
+        (
+            component > 0
+        ).astype(
+            np.uint8
+        ),
+        mask=component > 0,
+        transform=affine_transform,
+    ):
+
+        if value == 1:
+
+            geometries.append(
+                shape(geom)
+            )
+
+    if not geometries:
+        return evidence
+
+    geometry = max(
+        geometries,
+        key=lambda item: item.area,
+    )
+
+    source_crs = CRS.from_user_input(
+        crs_text
+    )
+
     try:
-        to_wgs = Transformer.from_crs(src_crs, "EPSG:4326", always_xy=True).transform
-        geom_wgs = shapely_transform(to_wgs, geom)
-        c = geom_wgs.centroid
-        evidence["centroid_wgs84"] = {"lat": round(c.y, 6), "lon": round(c.x, 6)}
-        evidence["geojson"] = mapping(geom_wgs)
+
+        to_wgs84 = (
+            Transformer.from_crs(
+                source_crs,
+                "EPSG:4326",
+                always_xy=True,
+            ).transform
+        )
+
+        geometry_wgs84 = (
+            shapely_transform(
+                to_wgs84,
+                geometry,
+            )
+        )
+
+        centroid = (
+            geometry_wgs84.centroid
+        )
+
+        evidence[
+            "centroid_wgs84"
+        ] = {
+            "lat": round(
+                centroid.y,
+                6,
+            ),
+            "lon": round(
+                centroid.x,
+                6,
+            ),
+        }
+
+        evidence[
+            "geojson"
+        ] = mapping(
+            geometry_wgs84
+        )
+
     except Exception:
         pass
 
     try:
-        to_equal_area = Transformer.from_crs(src_crs, "EPSG:6933", always_xy=True).transform
-        geom_m = shapely_transform(to_equal_area, geom)
-        evidence["area_hectares"] = round(abs(geom_m.area) / 10000.0, 3)
+
+        to_equal_area = (
+            Transformer.from_crs(
+                source_crs,
+                "EPSG:6933",
+                always_xy=True,
+            ).transform
+        )
+
+        geometry_m = (
+            shapely_transform(
+                to_equal_area,
+                geometry,
+            )
+        )
+
+        evidence[
+            "area_hectares"
+        ] = round(
+            abs(
+                geometry_m.area
+            )
+            / 10000.0,
+            3,
+        )
+
     except Exception:
         pass
 
     return evidence
 
 
-def make_overlay(rgb: np.ndarray, mask: np.ndarray, name: str, change_mask: Optional[np.ndarray] = None) -> str:
-    out = rgb.copy()
+def make_overlay(
+    rgb: np.ndarray,
+    mask: np.ndarray,
+    name: str,
+    change_mask: Optional[
+        np.ndarray
+    ] = None,
+) -> str:
+
+    output = rgb.copy()
+
     if change_mask is None:
-        overlay = np.zeros_like(out)
+
+        overlay = np.zeros_like(
+            output
+        )
+
         overlay[:, :, 2] = 255
+
         alpha = 0.42
-        sel = mask > 0
-        out[sel] = ((1 - alpha) * out[sel] + alpha * overlay[sel]).astype(np.uint8)
-        contours, _ = cv2.findContours((mask > 0).astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        bgr = cv2.cvtColor(out, cv2.COLOR_RGB2BGR)
-        cv2.drawContours(bgr, contours, -1, (0, 255, 255), 2)
+
+        selected = mask > 0
+
+        output[selected] = (
+            (
+                1 - alpha
+            )
+            * output[selected]
+            + alpha
+            * overlay[selected]
+        ).astype(
+            np.uint8
+        )
+
+        contours, _ = (
+            cv2.findContours(
+                (
+                    mask > 0
+                ).astype(
+                    np.uint8
+                ),
+                cv2.RETR_EXTERNAL,
+                cv2.CHAIN_APPROX_SIMPLE,
+            )
+        )
+
+        bgr = cv2.cvtColor(
+            output,
+            cv2.COLOR_RGB2BGR,
+        )
+
+        cv2.drawContours(
+            bgr,
+            contours,
+            -1,
+            (0, 255, 255),
+            2,
+        )
+
     else:
-        overlay = np.zeros_like(out)
+
+        overlay = np.zeros_like(
+            output
+        )
+
         overlay[:, :, 0] = 255
-        sel = change_mask > 0
-        out[sel] = (0.55 * out[sel] + 0.45 * overlay[sel]).astype(np.uint8)
-        bgr = cv2.cvtColor(out, cv2.COLOR_RGB2BGR)
-    path = GENERATED_DIR / f"{name}_{uuid.uuid4().hex[:8]}.png"
-    cv2.imwrite(str(path), bgr)
-    return path.name
+
+        selected = (
+            change_mask > 0
+        )
+
+        output[selected] = (
+            0.55
+            * output[selected]
+            + 0.45
+            * overlay[selected]
+        ).astype(
+            np.uint8
+        )
+
+        bgr = cv2.cvtColor(
+            output,
+            cv2.COLOR_RGB2BGR,
+        )
+
+    output_path = (
+        GENERATED_DIR
+        / (
+            f"{name}_"
+            f"{uuid.uuid4().hex[:8]}"
+            ".png"
+        )
+    )
+
+    cv2.imwrite(
+        str(output_path),
+        bgr,
+    )
+
+    return output_path.name
 
 
-def scene_caption(data: Dict[str, Any]) -> Tuple[str, float]:
-    rgb = data["rgb"]
-    veg = mask_stats(detect_vegetation(data))["percent"]
-    built = mask_stats(detect_builtup(data))["percent"]
-    mean = rgb.mean(axis=(0, 1))
-    pieces = []
-    if veg > 18:
-        pieces.append("substantial vegetation")
-    if built > 8:
-        pieces.append("textured built-up/constructed regions")
-    if mean[2] > mean[0] + 5:
-        pieces.append("blue-toned areas that may include water")
-    if not pieces:
-        pieces.append("mixed land-cover patterns")
-    return "Prototype scene summary: " + ", ".join(pieces) + ".", 0.58
+# ============================================================
+# SINGLE IMAGE
+# ============================================================
+
+def scene_caption(
+    data: Dict[str, Any],
+) -> Tuple[str, float, Dict[str, Any]]:
+    """
+    Generate domain-specific remote-sensing captioning adhering to VRSBench & BigEarthNet standards.
+    """
+    caption, conf, diag = generate_rs_caption(data, vlm=RS_VLM)
+    return caption, conf, diag
 
 
-def analyze_single(path: Path, data: Dict[str, Any], feature: str, task: str) -> Dict[str, Any]:
+def analyze_single(
+    path: Path,
+    data: Dict[str, Any],
+    feature: str,
+    task: str,
+    query: str,
+) -> Dict[str, Any]:
+
+    # --------------------------------------------------------
+    # Captioning: GeoRSCLIP Scene Descriptor & Composition
+    # --------------------------------------------------------
+
     if task == "captioning":
-        answer, conf = scene_caption(data)
+        answer, confidence, diag = scene_caption(data)
+
+        # Generate a multi-class land-cover visual overlay for captioning evidence
+        overlay_name = None
+        try:
+            seg_overlay, _ = segment_land_cover(path, data, vlm=RS_VLM)
+            overlay_name = f"caption_overlay_{uuid.uuid4().hex[:8]}.png"
+            seg_path = GENERATED_DIR / overlay_name
+            import cv2 as _cv2
+            _cv2.imwrite(str(seg_path), seg_overlay[:, :, ::-1])
+        except Exception as exc:
+            import logging
+            logging.warning(f"Failed to generate caption overlay: {exc}")
+
         return {
             "answer": answer,
-            "confidence": conf,
-            "tool": "Remote-Sensing Scene Caption Prototype",
+            "confidence": confidence,
+            "tool": "GeoRSCLIP Remote-Sensing Scene Descriptor (VRSBench Standard)",
+            "overlay": overlay_name,
+            "evidence": diag.get("composition", {}),
+            "diagnostics": diag,
+        }
+
+    # --------------------------------------------------------
+    # Real adapted RS-VQA
+    # --------------------------------------------------------
+
+    if RS_VLM.available:
+
+        try:
+
+            result = RS_VLM.analyze(
+                image_path=path,
+                question=query,
+            )
+
+            overlay = None
+            evidence = result.get("evidence")
+
+            # Attach visual grounding overlay and spatial evidence when querying about a specific feature
+            if feature and feature not in {"auto", "scene", "multimodal", None}:
+                f_mask, _, _ = feature_mask(feature, path, data)
+                if (f_mask > 0).sum() >= 20:
+                    evidence = spatial_evidence(f_mask, data)
+                    overlay = make_overlay(
+                        data["rgb"],
+                        f_mask,
+                        feature.replace("-", "_"),
+                    )
+
+            return {
+                "answer": result.get(
+                    "answer",
+                    "",
+                ),
+                "confidence": float(
+                    result.get(
+                        "confidence",
+                        0.0,
+                    )
+                ),
+                "tool": result.get(
+                    "model",
+                    "GeoRSCLIP + RSVQA Adapter",
+                ),
+                "overlay": overlay,
+                "evidence": evidence,
+                "top_answers": result.get(
+                    "top_answers",
+                    [],
+                ),
+            }
+
+        except Exception as exc:
+
+            print(
+                "[RS-VLM] Inference failed:",
+                exc,
+            )
+
+    # --------------------------------------------------------
+    # Scene fallback
+    # --------------------------------------------------------
+
+    if feature in {
+        "auto",
+        "scene",
+        "multimodal",
+        None,
+    }:
+
+        answer, confidence = (
+            scene_caption(data)
+        )
+
+        return {
+            "answer": answer,
+            "confidence": confidence,
+            "tool": (
+                "Remote-Sensing Scene "
+                "Caption Fallback"
+            ),
             "overlay": None,
             "evidence": None,
         }
 
-    mask, method, base_conf = feature_mask(feature, path, data)
-    stats = mask_stats(mask)
-    evidence = spatial_evidence(mask, data)
-    overlay = make_overlay(data["rgb"], mask, feature.replace("-", "_"))
-    exists = stats["percent"] > (0.8 if feature == "water" else 1.5)
+    # --------------------------------------------------------
+    # Feature-specific fallback
+    # --------------------------------------------------------
+
+    mask, method, base_conf = (
+        feature_mask(
+            feature,
+            path,
+            data,
+        )
+    )
+
+    stats = mask_stats(
+        mask
+    )
+
+    evidence = spatial_evidence(
+        mask,
+        data,
+    )
+
+    overlay = make_overlay(
+        data["rgb"],
+        mask,
+        feature.replace(
+            "-",
+            "_",
+        ),
+    )
+
+    exists = (
+        stats["percent"]
+        > (
+            0.8
+            if feature == "water"
+            else 1.5
+        )
+    )
+
     if exists:
+
         area_phrase = ""
-        if evidence.get("area_hectares") is not None:
-            area_phrase = f" The largest detected region is approximately {evidence['area_hectares']:.2f} hectares."
-        answer = f"Yes — the prototype detected {feature} evidence, covering about {stats['percent']:.1f}% of the image.{area_phrase}"
+
+        if (
+            evidence.get(
+                "area_hectares"
+            )
+            is not None
+        ):
+
+            area_phrase = (
+                " The largest detected "
+                "region is approximately "
+                f"{evidence['area_hectares']:.2f} "
+                "hectares."
+            )
+
+        answer = (
+            f"Yes — the prototype detected "
+            f"{feature} evidence, covering "
+            f"about {stats['percent']:.1f}% "
+            "of the image."
+            f"{area_phrase}"
+        )
+
     else:
-        answer = f"The prototype did not find strong {feature} evidence in this image."
-    conf = min(0.95, max(0.35, base_conf + min(stats["percent"] / 250.0, 0.12)))
+
+        answer = (
+            "The prototype did not find "
+            f"strong {feature} evidence "
+            "in this image."
+        )
+
+    confidence = min(
+        0.95,
+        max(
+            0.35,
+            base_conf
+            + min(
+                stats["percent"]
+                / 250.0,
+                0.12,
+            ),
+        ),
+    )
+
     return {
         "answer": answer,
-        "confidence": round(conf, 2),
+        "confidence": round(
+            confidence,
+            2,
+        ),
         "tool": method,
         "overlay": overlay,
         "evidence": evidence,
@@ -354,153 +1192,2455 @@ def analyze_single(path: Path, data: Dict[str, Any], feature: str, task: str) ->
     }
 
 
-def analyze_change(path1: Path, d1: Dict[str, Any], path2: Path, d2: Dict[str, Any], feature: str) -> Dict[str, Any]:
-    m1, method1, c1 = feature_mask(feature, path1, d1)
-    m2, method2, c2 = feature_mask(feature, path2, d2)
-    if m2.shape != m1.shape:
-        m2 = cv2.resize(m2, (m1.shape[1], m1.shape[0]), interpolation=cv2.INTER_NEAREST)
-    s1, s2 = mask_stats(m1), mask_stats(m2)
-    delta = s2["percent"] - s1["percent"]
-    rel = None if s1["percent"] < 1e-6 else (delta / s1["percent"]) * 100.0
-    changed = cv2.absdiff((m1 > 0).astype(np.uint8) * 255, (m2 > 0).astype(np.uint8) * 255)
-    overlay = make_overlay(d2["rgb"], m2, "change", changed)
-    ev1, ev2 = spatial_evidence(m1, d1), spatial_evidence(m2, d2)
+# ============================================================
+# HYBRID GROUNDING
+# ============================================================
+
+def analyze_grounding(
+    path: Path,
+    data: Dict[str, Any],
+    query: str,
+) -> Dict[str, Any]:
+    """
+    Open-Vocabulary Visual Grounding powered by GeoRSCLIP & Remote-Sensing Spectral Indices.
+
+    Uses GeoRSCLIP spatial patch embeddings to localize natural language targets
+    (e.g., "highlight the river", "locate runways", "detect buildings") and draws
+    annotated bounding box overlays with spatial coordinates.
+    """
+    q = query.lower().strip()
+    ai_grounding_used = False
+    bounding_box = None
+    feature = "target"
+    method = "GeoRSCLIP Open-Vocabulary Grounding"
+    base_conf = 0.82
+
+    # 1. Check if RS_VLM is available for AI Open-Vocabulary Grounding
+    if RS_VLM is not None and getattr(RS_VLM, "available", False):
+        try:
+            clip_mask, clip_bbox, clip_conf, clip_diag = ground_with_clip(
+                data=data,
+                query=query,
+                vlm=RS_VLM,
+                grid_size=16,
+            )
+            active_mask = clip_mask
+            bounding_box = clip_bbox
+            base_conf = clip_conf
+            feature = clip_diag.get("target_phrase", "target")
+            ai_grounding_used = True
+            method = f"GeoRSCLIP Spatial Activation Map ({clip_diag.get('grid_shape', '16x16')})"
+        except Exception as e:
+            import logging
+            logging.warning(f"GeoRSCLIP grounding failed, falling back to spectral: {e}")
+            ai_grounding_used = False
+
+    # 2. Fallback or physical spectral refinement
+    if not ai_grounding_used:
+        if any(term in q for term in ["water", "reservoir", "lake", "river", "pond", "flood"]):
+            feature = "water"
+        elif any(term in q for term in ["vegetation", "forest", "crop", "agriculture", "green area"]):
+            feature = "vegetation"
+        elif any(term in q for term in ["built-up", "built up", "building", "buildings", "urban", "settlement"]):
+            feature = "built-up"
+        else:
+            feature = infer_feature(query, {})
+
+        mask, method, base_conf = feature_mask(feature, path, data)
+        component = _largest_component(mask)
+        active_mask = mask if (mask > 0).sum() >= 20 else component
+
+        ys, xs = np.where(active_mask > 0)
+        if len(xs) > 0 and len(ys) > 0:
+            bounding_box = {
+                "x1": int(xs.min()),
+                "y1": int(ys.min()),
+                "x2": int(xs.max()),
+                "y2": int(ys.max()),
+            }
+
+    stats = mask_stats(active_mask)
+    evidence = spatial_evidence(active_mask, data)
+    component = _largest_component(active_mask)
+    component_pixels = int((component > 0).sum())
+
+    # Build visual overlay with bounding box and label tag
+    rgb_base = np.asarray(data["rgb"], dtype=np.uint8).copy()
+    if rgb_base.ndim == 2:
+        rgb_base = np.stack([rgb_base, rgb_base, rgb_base], axis=-1)
+    if rgb_base.shape[2] > 3:
+        rgb_base = rgb_base[..., :3]
+
+    overlay_img = rgb_base.copy().astype(np.float32)
+    # Blend activation highlight
+    highlight_color = np.array([255, 180, 20], dtype=np.float32) if ai_grounding_used else np.array([30, 180, 255], dtype=np.float32)
+    mask_bool = active_mask > 0
+    overlay_img[mask_bool] = 0.50 * highlight_color + 0.50 * overlay_img[mask_bool]
+    overlay_rgb = np.clip(overlay_img, 0, 255).astype(np.uint8)
+
+    # Draw bounding box on overlay if detected
+    if bounding_box is not None:
+        bx1, by1, bx2, by2 = bounding_box["x1"], bounding_box["y1"], bounding_box["x2"], bounding_box["y2"]
+        cv2.rectangle(overlay_rgb, (bx1, by1), (bx2, by2), (0, 240, 255), 2)
+        label_text = f"{feature.title()}"
+        cv2.putText(overlay_rgb, label_text, (bx1, max(18, by1 - 6)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 240, 255), 1, cv2.LINE_AA)
+
+    overlay_fname = f"grounding_{uuid.uuid4().hex[:8]}.png"
+    overlay_path = GENERATED_DIR / overlay_fname
+    cv2.imwrite(str(overlay_path), overlay_rgb[:, :, ::-1])
+
+    detected = (bounding_box is not None and stats["percent"] > 0.3)
+
+    if detected:
+        answer = f"Localized {feature} in the image."
+        location = evidence.get("location")
+        if location:
+            answer += f" Primary spatial concentration is in the {location} sector."
+        if bounding_box:
+            answer += f" Bounding Box: [{bounding_box['x1']}, {bounding_box['y1']}, {bounding_box['x2']}, {bounding_box['y2']}]."
+    else:
+        answer = f"No prominent {feature} regions localized."
+
+    confidence = round(float(np.clip(base_conf, 0.40, 0.95)), 2)
+
+    return {
+        "answer": answer,
+        "confidence": confidence,
+        "tool": "GeoRSCLIP Open-Vocabulary Grounding" if ai_grounding_used else "Hybrid Remote-Sensing Grounding",
+        "feature": feature,
+        "method": method,
+        "bounding_box": bounding_box,
+        "location": evidence.get("location"),
+        "overlay": overlay_fname,
+        "evidence": evidence,
+        "mask_stats": stats,
+    }
+
+
+# ============================================================
+# BI-TEMPORAL CHANGE
+# ============================================================
+
+def analyze_change(
+    path1: Path,
+    data1: Dict[str, Any],
+    path2: Path,
+    data2: Dict[str, Any],
+    feature: str,
+) -> Dict[str, Any]:
+
+    if feature in {
+        "auto",
+        "scene",
+        "multimodal",
+        None,
+    }:
+
+        feature = "water"
+
+    mask1, method1, conf1 = (
+        feature_mask(
+            feature,
+            path1,
+            data1,
+        )
+    )
+
+    mask2, method2, conf2 = (
+        feature_mask(
+            feature,
+            path2,
+            data2,
+        )
+    )
+
+    if mask2.shape != mask1.shape:
+
+        mask2 = cv2.resize(
+            mask2,
+            (
+                mask1.shape[1],
+                mask1.shape[0],
+            ),
+            interpolation=cv2.INTER_NEAREST,
+        )
+
+    stats1 = mask_stats(
+        mask1
+    )
+
+    stats2 = mask_stats(
+        mask2
+    )
+
+    delta = (
+        stats2["percent"]
+        - stats1["percent"]
+    )
+
+    relative_change = (
+        None
+        if stats1["percent"] < 1e-6
+        else (
+            delta
+            / stats1["percent"]
+        )
+        * 100.0
+    )
+
+    changed = cv2.absdiff(
+        (
+            mask1 > 0
+        ).astype(
+            np.uint8
+        ) * 255,
+        (
+            mask2 > 0
+        ).astype(
+            np.uint8
+        ) * 255,
+    )
+
+    overlay = make_overlay(
+        data2["rgb"],
+        mask2,
+        "change",
+        changed,
+    )
+
+    evidence_before = (
+        spatial_evidence(
+            mask1,
+            data1,
+        )
+    )
+
+    evidence_after = (
+        spatial_evidence(
+            mask2,
+            data2,
+        )
+    )
 
     if abs(delta) < 0.4:
-        direction = "remained approximately stable"
+
+        direction = (
+            "remained approximately stable"
+        )
+
     elif delta > 0:
+
         direction = "increased"
+
     else:
+
         direction = "decreased"
 
     area_sentence = ""
-    if ev1.get("area_hectares") is not None and ev2.get("area_hectares") is not None:
-        a1, a2 = ev1["area_hectares"], ev2["area_hectares"]
-        pct = None if a1 == 0 else ((a2 - a1) / a1) * 100.0
-        if pct is not None:
-            area_sentence = f" Estimated largest-region area: {a1:.2f} ha → {a2:.2f} ha ({pct:+.1f}%)."
-    rel_sentence = "" if rel is None else f" Relative mask change: {rel:+.1f}%."
-    answer = f"The detected {feature} area {direction}. Image coverage changed from {s1['percent']:.1f}% to {s2['percent']:.1f}%.{rel_sentence}{area_sentence}"
-    return {
-        "answer": answer,
-        "confidence": round(min(0.92, (c1 + c2) / 2), 2),
-        "tool": f"Bi-temporal {feature} comparison ({method1})",
-        "overlay": overlay,
-        "evidence": {"before": ev1, "after": ev2, "delta_percentage_points": round(delta, 2)},
-        "mask_stats": {"before": s1, "after": s2},
-    }
 
-
-def analyze_cross_modal(path1: Path, d1: Dict[str, Any], path2: Path, d2: Dict[str, Any]) -> Dict[str, Any]:
-    # This is intentionally an MVP fusion baseline, not a trained SAR-optical network.
-    w1, m1, _ = detect_water(path1, d1)
-    w2, m2, _ = detect_water(path2, d2)
-    if w2.shape != w1.shape:
-        w2 = cv2.resize(w2, (w1.shape[1], w1.shape[0]), interpolation=cv2.INTER_NEAREST)
-    consensus = cv2.bitwise_and(w1, w2)
-    union = cv2.bitwise_or(w1, w2)
-    agree = 0.0 if (union > 0).sum() == 0 else 100.0 * (consensus > 0).sum() / (union > 0).sum()
-    overlay = make_overlay(d1["rgb"], consensus, "fusion")
-    answer = (
-        f"Cross-modal MVP baseline completed. The two inputs show {agree:.1f}% agreement over candidate water pixels. "
-        "This proves the routing/fusion workflow; replace this heuristic fusion tool with the fine-tuned optical–SAR specialist for final SIH evaluation."
+    before_area = (
+        evidence_before.get(
+            "area_hectares"
+        )
     )
+
+    after_area = (
+        evidence_after.get(
+            "area_hectares"
+        )
+    )
+
+    if (
+        before_area is not None
+        and after_area is not None
+    ):
+
+        area_pct = (
+            None
+            if before_area == 0
+            else (
+                (
+                    after_area
+                    - before_area
+                )
+                / before_area
+            )
+            * 100.0
+        )
+
+        if area_pct is not None:
+
+            area_sentence = (
+                " Estimated largest-region "
+                f"area: {before_area:.2f} ha "
+                f"to {after_area:.2f} ha "
+                f"({area_pct:+.1f}%)."
+            )
+
+    relative_sentence = (
+        ""
+        if relative_change is None
+        else (
+            " Relative mask change: "
+            f"{relative_change:+.1f}%."
+        )
+    )
+
+    answer = (
+        f"The detected {feature} area "
+        f"{direction}. "
+        f"Image coverage changed from "
+        f"{stats1['percent']:.1f}% to "
+        f"{stats2['percent']:.1f}%."
+        f"{relative_sentence}"
+        f"{area_sentence}"
+    )
+
     return {
         "answer": answer,
-        "confidence": 0.52,
-        "tool": f"Optical–SAR Fusion Baseline ({m1} + {m2})",
+        "confidence": round(
+            min(
+                0.92,
+                (
+                    conf1
+                    + conf2
+                ) / 2.0,
+            ),
+            2,
+        ),
+        "tool": (
+            "Bi-temporal "
+            f"{feature} comparison "
+            f"({method1} + {method2})"
+        ),
         "overlay": overlay,
-        "evidence": {"candidate_water_agreement_percent": round(agree, 2)},
+        "evidence": {
+            "before": evidence_before,
+            "after": evidence_after,
+            "delta_percentage_points": round(
+                delta,
+                2,
+            ),
+        },
+        "mask_stats": {
+            "before": stats1,
+            "after": stats2,
+        },
     }
 
 
-@app.get("/", response_class=HTMLResponse)
-def home():
-    return HTMLResponse((FRONTEND_DIR / "index.html").read_text(encoding="utf-8"))
+# ============================================================
+# MODALITY / SAR UTILITIES
+# ============================================================
 
+def infer_modality(
+    path: Path,
+    data: Dict[str, Any],
+    original_filename: Optional[str] = None,
+) -> str:
+    """
+    Infer a conservative modality label.
 
-@app.get("/generated/{name}")
-def generated(name: str):
-    p = GENERATED_DIR / Path(name).name
-    if not p.exists():
-        raise HTTPException(404, "Generated file not found")
-    return FileResponse(p)
+    IMPORTANT:
+    Uploaded files are stored internally with random UUID
+    filenames, so the original upload filename must be passed
+    when available. This is what lets files such as
+    ``sentinel1_vv.tif`` be recognized as SAR.
 
+    This remains heuristic classification, not a learned
+    modality classifier.
+    """
 
-@app.get("/api/health")
-def health():
-    return {"ok": True, "name": "SatQuery AI MVP", "version": "0.1.0"}
-
-
-@app.post("/api/upload")
-async def upload(file: UploadFile = File(...)):
-    suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in ALLOWED_EXT:
-        raise HTTPException(400, f"Unsupported format. Use: {', '.join(sorted(ALLOWED_EXT))}")
-    file_id = uuid.uuid4().hex
-    target = UPLOAD_DIR / f"{file_id}{suffix}"
-    content = await file.read()
-    target.write_bytes(content)
-    try:
-        data = read_image(target)
-    except Exception as e:
-        target.unlink(missing_ok=True)
-        raise HTTPException(400, f"Could not read image: {e}")
-    preview = save_preview(data["rgb"], file_id)
-    FILES[file_id] = {"path": target, "data": data, "filename": file.filename}
-    meta = {k: v for k, v in data.items() if k != "rgb"}
-    return {"id": file_id, "filename": file.filename, "metadata": meta, "preview_url": f"/generated/{preview}"}
-
-
-@app.post("/api/analyze")
-def analyze(req: AnalyzeRequest):
-    if req.primary_id not in FILES:
-        raise HTTPException(404, "Primary image not found; upload again")
-    primary = FILES[req.primary_id]
-    secondary = FILES.get(req.secondary_id) if req.secondary_id else None
-    if req.secondary_id and secondary is None:
-        raise HTTPException(404, "Secondary image not found; upload again")
-
-    cid = req.conversation_id or "default"
-    ctx = CONTEXT.setdefault(cid, {})
-    feature = infer_feature(req.query, ctx)
-    task = route_task(req.query, secondary is not None)
-    ctx["last_feature"] = feature
-    ctx["last_task"] = task
-
-    trace = [
-        {"step": "Input Validator", "status": "ok", "detail": f"Primary: {primary['filename']}"},
-        {"step": "Query Interpreter", "status": "ok", "detail": f"Task={task}; feature={feature}"},
+    filename_candidates = [
+        str(original_filename or ""),
+        str(
+            data.get(
+                "original_filename",
+                "",
+            )
+        ),
+        str(path.name),
     ]
 
-    if task == "change_analysis" and secondary:
-        trace.append({"step": "Tool Router", "status": "ok", "detail": "Bi-temporal Change Tool selected"})
-        result = analyze_change(primary["path"], primary["data"], secondary["path"], secondary["data"], feature)
-    elif task == "cross_modal" and secondary:
-        trace.append({"step": "Tool Router", "status": "ok", "detail": "Optical–SAR Fusion Baseline selected"})
-        result = analyze_cross_modal(primary["path"], primary["data"], secondary["path"], secondary["data"])
+    descriptions = " ".join(
+        str(x)
+        for x in data.get(
+            "descriptions",
+            [],
+        )
+    )
+
+    text = (
+        " ".join(filename_candidates)
+        + " "
+        + descriptions
+    ).lower()
+
+    sar_tokens = [
+        "sentinel-1",
+        "sentinel1",
+        "sentinel_1",
+        "s1a_",
+        "s1b_",
+        "s1c_",
+        "s1d_",
+        " sar",
+        "sar ",
+        "_sar",
+        "-sar",
+        "vv",
+        "vh",
+        "hv",
+        "hh",
+        "risat",
+        "alos",
+        "palsar",
+        "radar",
+    ]
+
+    if any(
+        token in text
+        for token in sar_tokens
+    ):
+        return "sar"
+
+    # A single-band uint16/float32 GeoTIFF is a strong signal
+    # for a SAR backscatter product, but not proof by itself.
+    if (
+        path.suffix.lower() in {
+            ".tif",
+            ".tiff",
+        }
+        and int(
+            data.get(
+                "count",
+                0,
+            )
+        ) == 1
+    ):
+        dtype_text = " ".join(
+            str(x).lower()
+            for x in data.get(
+                "dtypes",
+                [],
+            )
+        )
+
+        if any(
+            token in dtype_text
+            for token in [
+                "uint16",
+                "float32",
+                "float64",
+            ]
+        ):
+            return "sar"
+
+    return "optical"
+
+
+def read_sar_backscatter(
+    path: Path,
+) -> Dict[str, Any]:
+    """
+    Read a single-band SAR backscatter/intensity raster.
+
+    The processor uses log10 scaling and percentile
+    normalization. It is suitable for Sentinel-1-style
+    single-band VV/VH GeoTIFFs.
+
+    This does not convert an optical image into SAR.
+    """
+
+    with rasterio.open(path) as src:
+
+        if src.count < 1:
+            raise ValueError(
+                "SAR raster has no bands."
+            )
+
+        band = src.read(
+            1
+        ).astype(
+            np.float32
+        )
+
+        finite = np.isfinite(
+            band
+        )
+
+        if not finite.any():
+            raise ValueError(
+                "SAR raster contains no finite pixels."
+            )
+
+        positive = band > 0
+
+        if not positive.any():
+            raise ValueError(
+                "SAR raster contains no positive backscatter values."
+            )
+
+        safe = np.where(
+            positive,
+            band,
+            np.nan,
+        )
+
+        db = (
+            10.0
+            * np.log10(
+                np.maximum(
+                    safe,
+                    1e-6,
+                )
+            )
+        )
+
+        finite_db = np.isfinite(
+            db
+        )
+
+        lo, hi = np.percentile(
+            db[finite_db],
+            [2, 98],
+        )
+
+        if hi <= lo:
+            hi = lo + 1e-6
+
+        normalized = np.clip(
+            (
+                db - lo
+            )
+            / (
+                hi - lo
+            ),
+            0.0,
+            1.0,
+        )
+
+        normalized_uint8 = (
+            np.nan_to_num(
+                normalized,
+                nan=0.0,
+            )
+            * 255.0
+        ).astype(
+            np.uint8
+        )
+
+        return {
+            "raw": band,
+            "db": db,
+            "normalized": normalized_uint8,
+            "width": src.width,
+            "height": src.height,
+            "count": src.count,
+            "crs": (
+                src.crs.to_string()
+                if src.crs
+                else None
+            ),
+            "transform": tuple(
+                src.transform
+            ),
+            "bounds": [
+                src.bounds.left,
+                src.bounds.bottom,
+                src.bounds.right,
+                src.bounds.top,
+            ],
+            "descriptions": [
+                description or ""
+                for description
+                in src.descriptions
+            ],
+            "is_georeferenced": bool(
+                src.crs
+            ),
+        }
+
+
+def detect_sar_water(
+    path: Path,
+    data: Dict[str, Any],
+) -> Tuple[
+    np.ndarray,
+    str,
+    float,
+]:
+    """
+    SAR-specific water baseline.
+
+    Uses the lower backscatter tail with an adaptive threshold,
+    then removes speckle-sized components.
+
+    The threshold is intentionally tighter than the previous 20th
+    percentile baseline so ordinary dark urban/shadow pixels are
+    less likely to become water.
+    """
+
+    sar = read_sar_backscatter(
+        path
+    )
+
+    db = sar["db"]
+
+    finite = np.isfinite(
+        db
+    )
+
+    values = db[finite]
+
+    if values.size == 0:
+        raise ValueError(
+            "No finite SAR backscatter pixels."
+        )
+
+    # Sentinel-1 water is generally in the lower backscatter tail.
+    # A tighter adaptive threshold reduces false positives.
+    threshold = float(
+        np.percentile(
+            values,
+            12,
+        )
+    )
+
+    mask = (
+        np.isfinite(db)
+        & (db <= threshold)
+    ).astype(
+        np.uint8
+    ) * 255
+
+    # Remove isolated speckle-like pixels and bridge small gaps.
+    mask = cv2.morphologyEx(
+        mask,
+        cv2.MORPH_OPEN,
+        np.ones(
+            (3, 3),
+            np.uint8,
+        ),
+    )
+
+    mask = cv2.morphologyEx(
+        mask,
+        cv2.MORPH_CLOSE,
+        np.ones(
+            (7, 7),
+            np.uint8,
+        ),
+    )
+
+    num_labels, labels, stats, _ = (
+        cv2.connectedComponentsWithStats(
+            (mask > 0).astype(
+                np.uint8
+            ),
+            8,
+        )
+    )
+
+    cleaned = np.zeros_like(
+        mask
+    )
+
+    min_component = max(
+        40,
+        int(
+            mask.size * 0.00008
+        ),
+    )
+
+    for label_id in range(
+        1,
+        num_labels,
+    ):
+
+        area = int(
+            stats[
+                label_id,
+                cv2.CC_STAT_AREA,
+            ]
+        )
+
+        if area >= min_component:
+            cleaned[
+                labels == label_id
+            ] = 255
+
+    return (
+        cleaned,
+        "SAR adaptive low-backscatter water baseline",
+        0.78,
+    )
+
+def detect_sar_builtup(
+    path: Path,
+) -> Tuple[
+    np.ndarray,
+    str,
+    float,
+]:
+    """
+    Simple SAR high-backscatter/texture baseline for
+    built-up areas.
+
+    Urban/constructed surfaces can produce relatively high
+    radar backscatter, but this is only a heuristic.
+    """
+
+    sar = read_sar_backscatter(
+        path
+    )
+
+    db = sar["db"]
+
+    finite = np.isfinite(
+        db
+    )
+
+    values = db[finite]
+
+    if values.size == 0:
+        raise ValueError(
+            "No finite SAR backscatter pixels."
+        )
+
+    threshold = float(
+        np.percentile(
+            values,
+            80,
+        )
+    )
+
+    mask = (
+        np.isfinite(db)
+        & (db >= threshold)
+    ).astype(
+        np.uint8
+    ) * 255
+
+    kernel = np.ones(
+        (3, 3),
+        np.uint8,
+    )
+
+    mask = cv2.morphologyEx(
+        mask,
+        cv2.MORPH_OPEN,
+        kernel,
+    )
+
+    mask = cv2.morphologyEx(
+        mask,
+        cv2.MORPH_CLOSE,
+        kernel,
+    )
+
+    return (
+        mask,
+        "SAR high-backscatter built-up baseline",
+        0.60,
+    )
+
+
+def detect_modality_feature(
+    path: Path,
+    data: Dict[str, Any],
+    modality: str,
+    feature: str,
+) -> Tuple[
+    np.ndarray,
+    str,
+    float,
+]:
+    """
+    Dispatch a feature detector according to modality.
+    """
+
+    if modality == "sar":
+
+        if feature == "water":
+            return detect_sar_water(
+                path,
+                data,
+            )
+
+        if feature == "built-up":
+            return detect_sar_builtup(
+                path,
+            )
+
+        # There is no defensible generic SAR vegetation
+        # detector in this MVP.
+        raise ValueError(
+            f"No SAR-specific baseline implemented for "
+            f"feature '{feature}'."
+        )
+
+    return feature_mask(
+        feature,
+        path,
+        data,
+    )
+
+
+def _align_mask_to_primary(
+    mask: np.ndarray,
+    source_data: Dict[str, Any],
+    target_data: Dict[str, Any],
+) -> Tuple[
+    np.ndarray,
+    str,
+]:
+    """
+    Align a mask to the primary image grid.
+
+    When both rasters are properly georeferenced, use rasterio
+    reprojection. Otherwise, use a transparent pixel-grid
+    resize and report that limitation.
+    """
+
+    target_shape = (
+        target_data["height"],
+        target_data["width"],
+    )
+
+    same_grid = (
+        mask.shape == target_shape
+    )
+
+    same_crs = (
+        source_data.get("crs")
+        and target_data.get("crs")
+        and source_data.get("crs")
+        == target_data.get("crs")
+    )
+
+    source_transform = (
+        source_data.get(
+            "transform"
+        )
+    )
+
+    target_transform = (
+        target_data.get(
+            "transform"
+        )
+    )
+
+    if (
+        same_grid
+        and same_crs
+        and source_transform
+        and target_transform
+    ):
+        return (
+            mask,
+            "native aligned grid",
+        )
+
+    if (
+        source_data.get(
+            "is_georeferenced"
+        )
+        and target_data.get(
+            "is_georeferenced"
+        )
+        and source_data.get(
+            "crs"
+        )
+        and target_data.get(
+            "crs"
+        )
+        and source_transform
+        and target_transform
+    ):
+
+        from affine import Affine
+        from rasterio.enums import Resampling
+        from rasterio.warp import reproject
+
+        destination = np.zeros(
+            target_shape,
+            dtype=np.uint8,
+        )
+
+        reproject(
+            source=mask.astype(
+                np.uint8
+            ),
+            destination=destination,
+            src_transform=Affine(
+                *source_transform[:6]
+            ),
+            src_crs=source_data[
+                "crs"
+            ],
+            dst_transform=Affine(
+                *target_transform[:6]
+            ),
+            dst_crs=target_data[
+                "crs"
+            ],
+            resampling=Resampling.nearest,
+        )
+
+        return (
+            destination,
+            "geospatial reprojection",
+        )
+
+    resized = cv2.resize(
+        mask,
+        (
+            target_data["width"],
+            target_data["height"],
+        ),
+        interpolation=cv2.INTER_NEAREST,
+    )
+
+    return (
+        resized,
+        "pixel-grid resize (no shared georeferencing)",
+    )
+
+
+# ============================================================
+# OPTICAL + SAR
+# ============================================================
+
+def analyze_cross_modal(
+    path1: Path,
+    data1: Dict[str, Any],
+    path2: Path,
+    data2: Dict[str, Any],
+    feature: str = "water",
+) -> Dict[str, Any]:
+    """
+    SAR-aware optical + SAR fusion baseline.
+
+    The optical and SAR masks are generated independently, SAR is
+    geospatially reprojected to the optical grid when both inputs
+    have valid georeferencing, and a small registration tolerance
+    is used when forming the consensus.
+
+    This is a deterministic multimodal fusion baseline, not a
+    learned multimodal neural network.
+    """
+
+    modality1 = infer_modality(
+        path1,
+        data1,
+        data1.get("original_filename"),
+    )
+
+    modality2 = infer_modality(
+        path2,
+        data2,
+        data2.get("original_filename"),
+    )
+
+    if {
+        modality1,
+        modality2,
+    } != {
+        "optical",
+        "sar",
+    }:
+
+        raise ValueError(
+            "Optical-SAR fusion requires exactly "
+            "one optical input and one SAR input. "
+            f"Detected: primary={modality1}, "
+            f"secondary={modality2}."
+        )
+
+    if modality1 == "sar":
+
+        sar_path = path1
+        sar_data = data1
+
+        optical_path = path2
+        optical_data = data2
+
     else:
-        trace.append({"step": "Tool Router", "status": "ok", "detail": f"{task.title()} specialist selected"})
-        result = analyze_single(primary["path"], primary["data"], feature, task)
 
-    trace.append({"step": "Evidence Builder", "status": "ok", "detail": "Overlay/spatial evidence generated when available"})
-    trace.append({"step": "Response Integrator", "status": "ok", "detail": "Answer + confidence + audit trace returned"})
+        optical_path = path1
+        optical_data = data1
 
-    response = {
-        "query": req.query,
-        "task": task,
-        "feature": feature,
-        "answer": result["answer"],
-        "confidence": result["confidence"],
-        "tool": result["tool"],
-        "execution_trace": trace,
-        "evidence": result.get("evidence"),
-        "overlay_url": f"/generated/{result['overlay']}" if result.get("overlay") else None,
-        "prototype_notice": "This MVP uses real geospatial parsing/coordinate conversion and lightweight CV baselines. Replace heuristic specialist tools with fine-tuned remote-sensing models for benchmark submission.",
+        sar_path = path2
+        sar_data = data2
+
+    # --------------------------------------------------------
+    # Independent modality detectors
+    # --------------------------------------------------------
+
+    optical_mask, optical_method, optical_conf = (
+        detect_modality_feature(
+            optical_path,
+            optical_data,
+            "optical",
+            feature,
+        )
+    )
+
+    sar_mask, sar_method, sar_conf = (
+        detect_modality_feature(
+            sar_path,
+            sar_data,
+            "sar",
+            feature,
+        )
+    )
+
+    # --------------------------------------------------------
+    # Geospatial alignment
+    # --------------------------------------------------------
+
+    sar_mask_aligned, alignment_method = (
+        _align_mask_to_primary(
+            sar_mask,
+            sar_data,
+            optical_data,
+        )
+    )
+
+    optical_binary = (
+        optical_mask > 0
+    ).astype(
+        np.uint8
+    ) * 255
+
+    sar_binary = (
+        sar_mask_aligned > 0
+    ).astype(
+        np.uint8
+    ) * 255
+
+    # --------------------------------------------------------
+    # Registration-tolerant consensus
+    # --------------------------------------------------------
+    #
+    # Exact pixel AND is too strict for independently produced
+    # masks, especially when optical and SAR resolutions differ.
+    # A 5x5 dilation allows a few pixels of registration tolerance
+    # without simply taking the whole union.
+    # --------------------------------------------------------
+
+    tolerance_kernel = np.ones(
+        (5, 5),
+        np.uint8,
+    )
+
+    optical_tolerant = cv2.dilate(
+        optical_binary,
+        tolerance_kernel,
+        iterations=1,
+    )
+
+    sar_tolerant = cv2.dilate(
+        sar_binary,
+        tolerance_kernel,
+        iterations=1,
+    )
+
+    tolerant_consensus = cv2.bitwise_or(
+        cv2.bitwise_and(
+            optical_tolerant,
+            sar_binary,
+        ),
+        cv2.bitwise_and(
+            optical_binary,
+            sar_tolerant,
+        ),
+    )
+
+    # Keep consensus compact and remove one-pixel fragments.
+    tolerant_consensus = cv2.morphologyEx(
+        tolerant_consensus,
+        cv2.MORPH_CLOSE,
+        np.ones(
+            (5, 5),
+            np.uint8,
+        ),
+    )
+
+    tolerant_consensus = cv2.morphologyEx(
+        tolerant_consensus,
+        cv2.MORPH_OPEN,
+        np.ones(
+            (3, 3),
+            np.uint8,
+        ),
+    )
+
+    # If tolerant consensus is empty, fall back to exact consensus.
+    exact_consensus = cv2.bitwise_and(
+        optical_binary,
+        sar_binary,
+    )
+
+    consensus = (
+        tolerant_consensus
+        if (tolerant_consensus > 0).any()
+        else exact_consensus
+    )
+
+    union = cv2.bitwise_or(
+        optical_binary,
+        sar_binary,
+    )
+
+    optical_pixels = int(
+        (optical_binary > 0).sum()
+    )
+
+    sar_pixels = int(
+        (sar_binary > 0).sum()
+    )
+
+    union_pixels = int(
+        (union > 0).sum()
+    )
+
+    exact_consensus_pixels = int(
+        (exact_consensus > 0).sum()
+    )
+
+    consensus_pixels = int(
+        (consensus > 0).sum()
+    )
+
+    # Exact IoU-style agreement is retained for auditability.
+    exact_agreement = (
+        0.0
+        if union_pixels == 0
+        else (
+            100.0
+            * exact_consensus_pixels
+            / union_pixels
+        )
+    )
+
+    # The displayed agreement uses the registration-tolerant
+    # consensus because the two sensors rarely land on identical
+    # pixels after reprojection.
+    agreement = (
+        0.0
+        if union_pixels == 0
+        else (
+            100.0
+            * consensus_pixels
+            / union_pixels
+        )
+    )
+
+    optical_coverage = (
+        100.0
+        * optical_pixels
+        / optical_binary.size
+    )
+
+    sar_coverage = (
+        100.0
+        * sar_pixels
+        / sar_binary.size
+    )
+
+    fused_coverage = (
+        100.0
+        * consensus_pixels
+        / consensus.size
+    )
+
+    # --------------------------------------------------------
+    # Remove tiny fused regions from the final overlay.
+    # --------------------------------------------------------
+
+    fused_component = _largest_component(
+        consensus
+    )
+
+    fused_component_pixels = int(
+        (fused_component > 0).sum()
+    )
+
+    if fused_component_pixels >= 40:
+        final_mask = fused_component
+    else:
+        final_mask = consensus
+
+    final_pixels = int(
+        (final_mask > 0).sum()
+    )
+
+    final_coverage = (
+        100.0
+        * final_pixels
+        / final_mask.size
+    )
+
+    # --------------------------------------------------------
+    # Spatial evidence on the final fused region.
+    # --------------------------------------------------------
+
+    final_evidence = spatial_evidence(
+        final_mask,
+        optical_data,
+    )
+
+    bounding_box = None
+
+    ys, xs = np.where(
+        final_mask > 0
+    )
+
+    if len(xs) > 0 and len(ys) > 0:
+
+        bounding_box = {
+            "x1": int(xs.min()),
+            "y1": int(ys.min()),
+            "x2": int(xs.max()),
+            "y2": int(ys.max()),
+        }
+
+    # --------------------------------------------------------
+    # Overlay on optical imagery.
+    # --------------------------------------------------------
+
+    overlay = make_overlay(
+        optical_data["rgb"],
+        final_mask,
+        "fusion",
+    )
+
+    # --------------------------------------------------------
+    # Confidence
+    # --------------------------------------------------------
+
+    confidence = round(
+        min(
+            0.93,
+            max(
+                0.35,
+                (
+                    optical_conf
+                    + sar_conf
+                )
+                / 2.0
+                + min(
+                    agreement / 500.0,
+                    0.10,
+                )
+                + (
+                    0.04
+                    if alignment_method
+                    == "geospatial reprojection"
+                    else 0.0
+                ),
+            ),
+        ),
+        2,
+    )
+
+    if agreement >= 60:
+        agreement_phrase = "strong agreement"
+    elif agreement >= 30:
+        agreement_phrase = "moderate agreement"
+    elif agreement >= 10:
+        agreement_phrase = "limited agreement"
+    else:
+        agreement_phrase = "low agreement"
+
+    if final_pixels > 0:
+
+        answer = (
+            f"The optical and SAR inputs show "
+            f"{agreement_phrase} for the requested "
+            f"{feature} feature ({agreement:.1f}% "
+            "over their candidate union). "
+            f"The fused water region covers "
+            f"about {final_coverage:.1f}% of the optical image. "
+            f"Optical candidates cover "
+            f"{optical_coverage:.1f}% and SAR candidates cover "
+            f"{sar_coverage:.1f}%."
+        )
+
+    else:
+
+        answer = (
+            f"No spatially consistent {feature} region "
+            "was found between the optical and SAR candidates. "
+            f"Optical coverage is {optical_coverage:.1f}% "
+            f"and SAR coverage is {sar_coverage:.1f}%."
+        )
+
+    return {
+        "answer": answer,
+        "confidence": confidence,
+        "tool": (
+            "Optical-SAR Fusion "
+            "Baseline (registration-tolerant)"
+        ),
+        "overlay": overlay,
+        "bounding_box": bounding_box,
+        "location": final_evidence.get(
+            "location"
+        ),
+        "evidence": {
+            "feature": feature,
+            "primary_modality": modality1,
+            "secondary_modality": modality2,
+            "optical_method": optical_method,
+            "sar_method": sar_method,
+            "alignment_method": alignment_method,
+            "candidate_water_agreement_percent": round(
+                agreement,
+                2,
+            ),
+            "exact_pixel_agreement_percent": round(
+                exact_agreement,
+                2,
+            ),
+            "optical_candidate_coverage_percent": round(
+                optical_coverage,
+                2,
+            ),
+            "sar_candidate_coverage_percent": round(
+                sar_coverage,
+                2,
+            ),
+            "fused_water_coverage_percent": round(
+                final_coverage,
+                2,
+            ),
+            "registration_tolerance_pixels": 2,
+            "fused_spatial_evidence": final_evidence,
+        },
+        "mask_stats": {
+            "optical": mask_stats(
+                optical_binary
+            ),
+            "sar": mask_stats(
+                sar_binary
+            ),
+            "fused": mask_stats(
+                final_mask
+            ),
+        },
     }
-    return response
 
+
+# ============================================================
+# PAIR VALIDATION
+# ============================================================
+
+def validate_pair_compatibility(
+    primary: Dict[str, Any],
+    secondary: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Validate dimensions, CRS, georeferencing, band counts,
+    and conservative modality hints.
+    """
+
+    issues: List[str] = []
+    warnings: List[str] = []
+
+    p = primary["data"]
+    s = secondary["data"]
+
+    # --------------------------------------------------------
+    # Dimensions
+    # --------------------------------------------------------
+
+    if (
+        p["width"] != s["width"]
+        or p["height"] != s["height"]
+    ):
+
+        warnings.append(
+            "Image dimensions differ; "
+            "the workflow may resize or reproject "
+            "the secondary image."
+        )
+
+    # --------------------------------------------------------
+    # CRS
+    # --------------------------------------------------------
+
+    if (
+        p.get("crs")
+        and s.get("crs")
+    ):
+
+        if p["crs"] != s["crs"]:
+
+            warnings.append(
+                "CRS differs between inputs; "
+                "geospatial reprojection will be required "
+                "for spatial fusion."
+            )
+
+    elif (
+        p.get("crs")
+        or s.get("crs")
+    ):
+
+        warnings.append(
+            "Only one image contains CRS metadata; "
+            "true geospatial co-registration cannot "
+            "be guaranteed."
+        )
+
+    else:
+
+        warnings.append(
+            "Neither image contains CRS metadata; "
+            "pairwise spatial alignment is limited "
+            "to pixel-grid resizing."
+        )
+
+    # --------------------------------------------------------
+    # Georeferencing
+    # --------------------------------------------------------
+
+    if (
+        bool(
+            p.get(
+                "is_georeferenced"
+            )
+        )
+        != bool(
+            s.get(
+                "is_georeferenced"
+            )
+        )
+    ):
+
+        warnings.append(
+            "Georeferencing status differs."
+        )
+
+    # --------------------------------------------------------
+    # Band count
+    # --------------------------------------------------------
+
+    if (
+        p.get("count")
+        != s.get("count")
+    ):
+
+        warnings.append(
+            "Band counts differ."
+        )
+
+    # --------------------------------------------------------
+    # Modality
+    # --------------------------------------------------------
+
+    p_modality = (
+        infer_modality(
+            primary["path"],
+            p,
+            primary.get("filename"),
+        )
+        if isinstance(
+            primary.get("path"),
+            Path,
+        )
+        else "unknown"
+    )
+
+    s_modality = (
+        infer_modality(
+            secondary["path"],
+            s,
+            secondary.get("filename"),
+        )
+        if isinstance(
+            secondary.get("path"),
+            Path,
+        )
+        else "unknown"
+    )
+
+    # The in-memory FILES entries do contain Path objects,
+    # but keep this safe for direct function use.
+    if p_modality == "unknown":
+        p_modality = "optical"
+
+    if s_modality == "unknown":
+        s_modality = "optical"
+
+    if p_modality == "sar" or s_modality == "sar":
+
+        if (
+            p_modality == "sar"
+            and s_modality == "sar"
+        ):
+
+            warnings.append(
+                "Both inputs are detected as SAR; "
+                "this is not an optical-SAR pair."
+            )
+
+        elif (
+            p_modality == "optical"
+            and s_modality == "optical"
+        ):
+
+            warnings.append(
+                "No SAR input detected; "
+                "this is an optical-optical pair."
+            )
+
+        else:
+
+            warnings.append(
+                "Optical-SAR pair detected. "
+                "SAR-specific preprocessing will be used."
+            )
+
+    return {
+        "compatible": len(issues) == 0,
+        "issues": issues,
+        "warnings": warnings,
+        "modality": {
+            "primary": p_modality,
+            "secondary": s_modality,
+        },
+        "optical_sar_pair": {
+            "is_optical_sar": (
+                {
+                    p_modality,
+                    s_modality,
+                }
+                == {
+                    "optical",
+                    "sar",
+                }
+            ),
+        },
+    }
+
+
+# ============================================================
+# API
+# ============================================================
+
+@app.get(
+    "/",
+    response_class=HTMLResponse,
+)
+def home():
+
+    index_path = (
+        FRONTEND_DIR
+        / "index.html"
+    )
+
+    if not index_path.exists():
+
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Frontend index.html not found."
+            ),
+        )
+
+    return HTMLResponse(
+        index_path.read_text(
+            encoding="utf-8"
+        )
+    )
+
+
+@app.get(
+    "/generated/{name}"
+)
+def generated(
+    name: str,
+):
+
+    path = (
+        GENERATED_DIR
+        / Path(name).name
+    )
+
+    if not path.exists():
+
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Generated file not found."
+            ),
+        )
+
+    return FileResponse(
+        path
+    )
+
+
+@app.get(
+    "/api/health"
+)
+def health():
+
+    return {
+        "ok": True,
+        "name": "SatQuery AI MVP",
+        "version": "0.7.0",
+        "agent_planner": "enabled",
+        "rs_vlm_available": RS_VLM.available,
+        "rs_vlm_model": (
+            "GeoRSCLIP + RSVQA Adapter"
+            if RS_VLM.available
+            else None
+        ),
+    }
+
+
+@app.get(
+    "/api/uploads"
+)
+def list_uploads():
+
+    return [
+        {
+            "id": file_id,
+            "filename": info[
+                "filename"
+            ],
+        }
+        for file_id, info
+        in FILES.items()
+    ]
+
+
+@app.post(
+    "/api/upload"
+)
+async def upload(
+    file: UploadFile = File(...),
+):
+
+    suffix = (
+        Path(
+            file.filename or ""
+        )
+        .suffix
+        .lower()
+    )
+
+    if suffix not in ALLOWED_EXT:
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Unsupported format. "
+                "Use: "
+                + ", ".join(
+                    sorted(
+                        ALLOWED_EXT
+                    )
+                )
+            ),
+        )
+
+    file_id = uuid.uuid4().hex
+
+    target = (
+        UPLOAD_DIR
+        / f"{file_id}{suffix}"
+    )
+
+    content = await file.read()
+
+    target.write_bytes(
+        content
+    )
+
+    try:
+
+        data = read_image(
+            target
+        )
+
+    except Exception as exc:
+
+        target.unlink(
+            missing_ok=True
+        )
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Could not read image: "
+                f"{exc}"
+            ),
+        )
+
+    preview = save_preview(
+        data["rgb"],
+        file_id,
+    )
+
+    data["original_filename"] = (
+        file.filename or target.name
+    )
+
+    FILES[file_id] = {
+        "path": target,
+        "data": data,
+        "filename": file.filename,
+    }
+
+    modality = infer_modality(
+        target,
+        data,
+        file.filename,
+    )
+
+    metadata = {
+        key: value
+        for key, value
+        in data.items()
+        if key not in ("rgb", "bands")
+    }
+
+    metadata["modality"] = modality
+
+    return {
+        "id": file_id,
+        "filename": file.filename,
+        "metadata": metadata,
+        "preview_url": (
+            f"/generated/{preview}"
+        ),
+    }
+
+
+class LoadDemoRequest(BaseModel):
+    sample_key: str
+
+
+@app.post("/api/load_demo")
+def load_demo_sample(req: LoadDemoRequest):
+    """
+    Directly register and return demo satellite images without manual file upload.
+    Supported keys:
+    - 'sentinel2'   : Sentinel-2 4-Band Multispectral Tile
+    - 'kolkata'     : High-Resolution Optical Urban Corridor
+    - 'optical_sar' : ISRO Cartosat Optical + RISAT SAR Pair
+    - 'bitemporal'  : Sentinel-2 Bi-Temporal Change Detection Pair (T1 & T2)
+    """
+    demo_registry = {
+        "sentinel2": {
+            "primary": BASE_DIR / "demo_data/bigearthnet/S2_multispectral_patch.tif",
+            "secondary": None,
+            "title": "Sentinel-2 4-Band Multispectral (Red/Green/Blue/NIR)",
+        },
+        "kolkata": {
+            "primary": BASE_DIR / "demo_data/vrsbench/vrsbench_sample_01.tif",
+            "secondary": None,
+            "title": "High-Resolution Optical Urban Corridor (Kolkata)",
+        },
+        "optical_sar": {
+            "primary": BASE_DIR / "demo_data/isro_sac/cartosat_optical_coregistered.tif",
+            "secondary": BASE_DIR / "demo_data/isro_sac/risat_sar_coregistered.tif",
+            "title": "Cartosat Optical + RISAT SAR Co-Registered Pair",
+        },
+        "bitemporal": {
+            "primary": BASE_DIR / "demo_data/cdvqa/cdvqa_time1.tif",
+            "secondary": BASE_DIR / "demo_data/cdvqa/cdvqa_time2.tif",
+            "title": "Bi-Temporal Sentinel-2 Change Detection Pair (T1 & T2)",
+        },
+        "real_sf": {
+            "primary": BASE_DIR / "demo_data/real_world_satellite/real_san_francisco_optical.tif",
+            "secondary": None,
+            "title": "Real Internet Satellite: San Francisco Bay High-Res Optical (COG)",
+        },
+        "real_sentinel": {
+            "primary": BASE_DIR / "demo_data/real_world_satellite/real_sentinel1_sar_alps.tif",
+            "secondary": None,
+            "title": "Real Internet Satellite: Multispectral High-Res Tile (EPSG:32618 UTM)",
+        },
+        # ── Edge-case scenarios ───────────────────────────────────────────
+        "ec_urban": {
+            "primary": BASE_DIR / "demo_data/edge_cases/ec_urban_dense.tif",
+            "secondary": None,
+            "title": "Edge Case: Dense Urban Core (Paris simulation)",
+        },
+        "ec_forest": {
+            "primary": BASE_DIR / "demo_data/edge_cases/ec_forest_dense.tif",
+            "secondary": None,
+            "title": "Edge Case: Tropical Rainforest (Amazon simulation)",
+        },
+        "ec_water": {
+            "primary": BASE_DIR / "demo_data/edge_cases/ec_water_dominant.tif",
+            "secondary": None,
+            "title": "Edge Case: Coastal Open Water (Mediterranean simulation)",
+        },
+        "ec_desert": {
+            "primary": BASE_DIR / "demo_data/edge_cases/ec_desert_bare.tif",
+            "secondary": None,
+            "title": "Edge Case: Arid Desert / Bare Ground (Sahara simulation)",
+        },
+        "ec_agri": {
+            "primary": BASE_DIR / "demo_data/edge_cases/ec_agricultural.tif",
+            "secondary": None,
+            "title": "Edge Case: Agricultural Patchwork (Ukraine farmland simulation)",
+        },
+        "ec_delta": {
+            "primary": BASE_DIR / "demo_data/edge_cases/ec_river_delta.tif",
+            "secondary": None,
+            "title": "Edge Case: River Delta / Wetland (Nile delta simulation)",
+        },
+        "ec_suburban": {
+            "primary": BASE_DIR / "demo_data/edge_cases/ec_suburban_mixed.tif",
+            "secondary": None,
+            "title": "Edge Case: Mixed Suburban (London outskirts simulation)",
+        },
+    }
+
+    if req.sample_key not in demo_registry:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown demo sample key '{req.sample_key}'. Available: {list(demo_registry.keys())}",
+        )
+
+    cfg = demo_registry[req.sample_key]
+    prim_p = cfg["primary"]
+    if not prim_p.exists():
+        raise HTTPException(status_code=404, detail=f"Demo file not found at {prim_p}")
+
+    prim_id = f"demo_prim_{uuid.uuid4().hex[:6]}"
+    prim_data = read_image(prim_p)
+    prim_preview = save_preview(prim_data["rgb"], prim_id)
+    FILES[prim_id] = {"path": prim_p, "data": prim_data, "filename": prim_p.name}
+
+    sec_id = None
+    sec_preview = None
+    sec_meta = None
+    if cfg["secondary"] and cfg["secondary"].exists():
+        sec_p = cfg["secondary"]
+        sec_id = f"demo_sec_{uuid.uuid4().hex[:6]}"
+        sec_data = read_image(sec_p)
+        sec_preview = save_preview(sec_data["rgb"], sec_id)
+        FILES[sec_id] = {"path": sec_p, "data": sec_data, "filename": sec_p.name}
+        sec_meta = {
+            "id": sec_id,
+            "filename": sec_p.name,
+            "preview_url": f"/generated/{sec_preview}",
+            "metadata": {k: v for k, v in sec_data.items() if k not in ("rgb", "bands")},
+        }
+
+    return {
+        "title": cfg["title"],
+        "primary": {
+            "id": prim_id,
+            "filename": prim_p.name,
+            "preview_url": f"/generated/{prim_preview}",
+            "metadata": {k: v for k, v in prim_data.items() if k not in ("rgb", "bands")},
+        },
+        "secondary": sec_meta,
+    }
+
+
+@app.post(
+    "/api/analyze"
+)
+def analyze(
+    req: AnalyzeRequest,
+):
+
+    # --------------------------------------------------------
+    # Primary input
+    # --------------------------------------------------------
+
+    if req.primary_id not in FILES:
+
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Primary image not found; "
+                "upload again."
+            ),
+        )
+
+    primary = FILES[
+        req.primary_id
+    ]
+
+    # --------------------------------------------------------
+    # Secondary input
+    # --------------------------------------------------------
+
+    secondary = (
+        FILES.get(
+            req.secondary_id
+        )
+        if req.secondary_id
+        else None
+    )
+
+    if (
+        req.secondary_id
+        and secondary is None
+    ):
+
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "Secondary image not found; "
+                "upload again."
+            ),
+        )
+
+    # --------------------------------------------------------
+    # Pair validation
+    # --------------------------------------------------------
+
+    pair_validation = None
+
+    if secondary is not None:
+
+        pair_validation = (
+            validate_pair_compatibility(
+                primary,
+                secondary,
+            )
+        )
+
+    # --------------------------------------------------------
+    # Conversation state
+    # --------------------------------------------------------
+
+    conversation_id = (
+        req.conversation_id
+        or "default"
+    )
+
+    context = CONTEXT.setdefault(
+        conversation_id,
+        {},
+    )
+
+    # --------------------------------------------------------
+    # Agent planner
+    # --------------------------------------------------------
+
+    image_count = (
+        2
+        if secondary is not None
+        else 1
+    )
+
+    try:
+
+        plan = build_plan(
+            query=req.query,
+            image_count=image_count,
+        )
+
+    except ValueError as exc:
+
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        )
+
+    task = plan["task"]
+
+    planned_feature = plan.get(
+        "feature"
+    )
+
+    if planned_feature not in {
+        None,
+        "auto",
+    }:
+
+        feature = planned_feature
+
+    else:
+
+        feature = infer_feature(
+            req.query,
+            context,
+        )
+
+    context[
+        "last_feature"
+    ] = feature
+
+    context[
+        "last_task"
+    ] = task
+
+    # --------------------------------------------------------
+    # Execution trace
+    # --------------------------------------------------------
+
+    trace: List[
+        Dict[str, Any]
+    ] = [
+        {
+            "step": "Input Validator",
+            "status": "ok",
+            "detail": (
+                f"Primary: "
+                f"{primary['filename']}"
+            ),
+        },
+        {
+            "step": "Query Interpreter",
+            "status": "ok",
+            "detail": (
+                f"Task={task}; "
+                f"feature={feature}"
+            ),
+        },
+        {
+            "step": "Agent Planner",
+            "status": "ok",
+            "detail": (
+                f"Planned "
+                f"{len(plan.get('steps', []))} "
+                "execution steps"
+            ),
+        },
+    ]
+
+    if pair_validation is not None:
+
+        trace.append(
+            {
+                "step": "Pair Compatibility",
+                "status": (
+                    "ok"
+                    if pair_validation[
+                        "compatible"
+                    ]
+                    else "failed"
+                ),
+                "detail": {
+                    "modality": pair_validation[
+                        "modality"
+                    ],
+                    "warnings": pair_validation[
+                        "warnings"
+                    ],
+                    "issues": pair_validation[
+                        "issues"
+                    ],
+                },
+            }
+        )
+
+    # --------------------------------------------------------
+    # Execute specialist
+    # --------------------------------------------------------
+
+    if (
+        task == "change_analysis"
+        and secondary is not None
+    ):
+
+        trace.append(
+            {
+                "step": "Change Engine",
+                "status": "ok",
+                "detail": (
+                    "Bi-temporal change "
+                    "specialist selected."
+                ),
+            }
+        )
+
+        result = analyze_change(
+            primary["path"],
+            primary["data"],
+            secondary["path"],
+            secondary["data"],
+            feature,
+        )
+
+    elif (
+        task == "cross_modal"
+        and secondary is not None
+    ):
+
+        trace.append(
+            {
+                "step": "Optical-SAR Fusion",
+                "status": "ok",
+                "detail": (
+                    "SAR-aware optical-SAR "
+                    "fusion specialist selected."
+                ),
+            }
+        )
+
+        try:
+            result = analyze_cross_modal(
+                primary["path"],
+                primary["data"],
+                secondary["path"],
+                secondary["data"],
+                feature=(
+                    feature
+                    if feature
+                    not in {
+                        "auto",
+                        "scene",
+                        "multimodal",
+                        None,
+                    }
+                    else "water"
+                ),
+            )
+        except ValueError as exc:
+            trace.append(
+                {
+                    "step": "Optical-SAR Fusion",
+                    "status": "error",
+                    "detail": str(exc),
+                }
+            )
+
+            raise HTTPException(
+                status_code=400,
+                detail=str(exc),
+            )
+
+    elif task == "segmentation":
+
+        trace.append(
+            {
+                "step": "Land-Cover Segmenter",
+                "status": "ok",
+                "detail": (
+                    "Multi-class false-colour "
+                    "segmentation: water / vegetation / buildings."
+                ),
+            }
+        )
+
+        try:
+            seg_overlay, seg_stats = segment_land_cover(
+                primary["path"],
+                primary["data"],
+                vlm=RS_VLM,
+            )
+
+            seg_fname = (
+                f"seg_{uuid.uuid4().hex[:8]}.png"
+            )
+            seg_path = GENERATED_DIR / seg_fname
+
+            # seg_overlay is H×W×3 RGB; cv2 expects BGR
+            import cv2 as _cv2
+            _cv2.imwrite(
+                str(seg_path),
+                seg_overlay[:, :, ::-1],
+            )
+
+            water_pct  = seg_stats["water"]["percent"]
+            veg_pct    = seg_stats["vegetation"]["percent"]
+            built_pct  = seg_stats["built_up"]["percent"]
+            other_pct  = seg_stats["unclassified"]["percent"]
+            ai_mode    = seg_stats.get("mode") == "clip_ai_zero_shot"
+
+            tool_name = (
+                "GeoRSCLIP Zero-Shot AI Segmenter (16x16 patch grid)"
+                if ai_mode
+                else "Multi-class Land-Cover Segmenter (NDWI + NDVI + NDBI)"
+            )
+
+            mode_label = "AI (GeoRSCLIP zero-shot)" if ai_mode else "Spectral indices"
+
+            answer = (
+                f"Land-cover map generated using {mode_label}. "
+                f"Detected: Water {water_pct:.1f}% (blue), "
+                f"Vegetation / green fields {veg_pct:.1f}% (green), "
+                f"Buildings / built-up {built_pct:.1f}% (orange), "
+                f"Bare / other {other_pct:.1f}% (tan)."
+            )
+
+            result = {
+                "task": "segmentation",
+                "tool": tool_name,
+                "feature": "multiclass",
+                "answer": answer,
+                "confidence": 0.85 if ai_mode else 0.72,
+                "mask_stats": seg_stats,
+                "evidence": {
+                    "water_percent": water_pct,
+                    "vegetation_percent": veg_pct,
+                    "built_up_percent": built_pct,
+                    "unclassified_percent": other_pct,
+                    "ai_mode": ai_mode,
+                },
+                "overlay_url": f"/generated/{seg_fname}",
+                "execution_trace": trace,
+            }
+
+        except Exception as exc:
+            trace.append(
+                {
+                    "step": "Land-Cover Segmenter",
+                    "status": "error",
+                    "detail": str(exc),
+                }
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=f"Segmentation failed: {exc}",
+            )
+
+        return result
+
+    elif task == "grounding":
+
+        trace.append(
+            {
+                "step": "RS Grounding",
+                "status": "ok",
+                "detail": (
+                    "Hybrid remote-sensing "
+                    "grounding specialist selected."
+                ),
+            }
+        )
+
+        try:
+
+            result = analyze_grounding(
+                primary["path"],
+                primary["data"],
+                req.query,
+            )
+
+        except Exception as exc:
+
+            trace.append(
+                {
+                    "step": "RS Grounding",
+                    "status": "error",
+                    "detail": str(exc),
+                }
+            )
+
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"Grounding failed: "
+                    f"{exc}"
+                ),
+            )
+
+    elif task == "captioning":
+
+        trace.append(
+            {
+                "step": "RS Captioner",
+                "status": "ok",
+                "detail": (
+                    "Scene description "
+                    "specialist selected."
+                ),
+            }
+        )
+
+        result = analyze_single(
+            primary["path"],
+            primary["data"],
+            feature,
+            "captioning",
+            req.query,
+        )
+
+    elif task in {
+        "vqa",
+        "multi_image_vqa",
+    }:
+
+        trace.append(
+            {
+                "step": "RS-VQA",
+                "status": "ok",
+                "detail": (
+                    "GeoRSCLIP + RSVQA Adapter "
+                    "selected."
+                ),
+            }
+        )
+
+        result = analyze_single(
+            primary["path"],
+            primary["data"],
+            feature,
+            "vqa",
+            req.query,
+        )
+
+    else:
+
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Unsupported planned task: "
+                f"{task}"
+            ),
+        )
+
+    # --------------------------------------------------------
+    # Evidence
+    # --------------------------------------------------------
+
+    trace.append(
+        {
+            "step": "Evidence Builder",
+            "status": "ok",
+            "detail": (
+                "Spatial/visual evidence "
+                "generated when available."
+            ),
+        }
+    )
+
+    # --------------------------------------------------------
+    # Result integrator
+    # --------------------------------------------------------
+
+    trace.append(
+        {
+            "step": "Response Integrator",
+            "status": "ok",
+            "detail": (
+                "Answer + confidence + "
+                "audit trace returned."
+            ),
+        }
+    )
+
+    # --------------------------------------------------------
+    # Final response
+    # --------------------------------------------------------
+
+    return {
+        "query": req.query,
+
+        "task": task,
+
+        "feature": feature,
+
+        "answer": result.get(
+            "answer",
+            "",
+        ),
+
+        "confidence": result.get(
+            "confidence",
+            0.0,
+        ),
+
+        "tool": result.get(
+            "tool",
+            result.get(
+                "model",
+                "unknown",
+            ),
+        ),
+
+        "execution_plan": plan,
+
+        "execution_trace": trace,
+
+        "input_validation": {
+            "pair": pair_validation,
+        },
+
+        "modalities": (
+            pair_validation.get(
+                "modality"
+            )
+            if pair_validation
+            else {
+                "primary": infer_modality(
+                    primary["path"],
+                    primary["data"],
+                    primary.get("filename"),
+                )
+            }
+        ),
+
+        "evidence": result.get(
+            "evidence"
+        ),
+
+        "overlay_url": (
+            f"/generated/"
+            f"{result['overlay']}"
+            if result.get(
+                "overlay"
+            )
+            else None
+        ),
+
+        "bounding_box": result.get(
+            "bounding_box"
+        ),
+
+        "grounding_location": result.get(
+            "location"
+        ),
+
+        "grounding_method": result.get(
+            "method"
+        ),
+
+        "mask_stats": result.get(
+            "mask_stats"
+        ),
+
+        "top_answers": result.get(
+            "top_answers",
+            [],
+        ),
+
+        "prototype_notice": (
+            "SatQuery MVP combines "
+            "remote-sensing model inference, "
+            "GIS processing, specialist "
+            "workflow orchestration, and "
+            "observable execution traces. "
+            "The current bi-temporal "
+            "and optical-SAR specialists "
+            "are deterministic MVP baselines; "
+            "the optical-SAR path uses "
+            "SAR-specific backscatter processing "
+            "but is not a learned multimodal model."
+        ),
+    }
+
+
+# ============================================================
+# DEVELOPMENT
+# ============================================================
 
 if __name__ == "__main__":
+
     import uvicorn
-    uvicorn.run("backend.app:app", host="127.0.0.1", port=8000, reload=False)
+
+    uvicorn.run(
+        "backend.app:app",
+        host="127.0.0.1",
+        port=8000,
+        reload=False,
+    )

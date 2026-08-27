@@ -1,0 +1,32 @@
+{
+  "catalog": [
+    {
+      "id": "san_francisco_bay_optical",
+      "title": "San Francisco Bay Coastal & Urban Infrastructure (Real High-Res Optical)",
+      "modality": "High-Resolution Optical RGB (0.5m)",
+      "description": "Real high-resolution aerial/satellite orthophoto of urban coast, port facilities, and bay water.",
+      "url": "https://raw.githubusercontent.com/cogeotiff/rio-tiler/master/tests/fixtures/cog_rgb.tif",
+      "filename": "real_san_francisco_optical.tif",
+      "category": "urban_coastal",
+      "path": "C:\\SatQueryMVP\\satquery-ai\\demo_data\\real_world_satellite\\real_san_francisco_optical.tif",
+      "width": 383,
+      "height": 232,
+      "bands": 3,
+      "crs": "EPSG:26913"
+    },
+    {
+      "id": "sentinel1_alps_sar_amplitude",
+      "title": "Sentinel-1 C-Band SAR Surface Backscatter (Real Copernicus S1)",
+      "modality": "Sentinel-1 SAR VV (10m Calibrated Backscatter)",
+      "description": "Real Copernicus Sentinel-1 radar backscatter measuring surface roughness and water boundaries.",
+      "url": "https://raw.githubusercontent.com/rasterio/rasterio/master/tests/data/RGB.byte.tif",
+      "filename": "real_sentinel1_sar_alps.tif",
+      "category": "sar_radar",
+      "path": "C:\\SatQueryMVP\\satquery-ai\\demo_data\\real_world_satellite\\real_sentinel1_sar_alps.tif",
+      "width": 791,
+      "height": 718,
+      "bands": 3,
+      "crs": "EPSG:32618"
+    }
+  ]
+}

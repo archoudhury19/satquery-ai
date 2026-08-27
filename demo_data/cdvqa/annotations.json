@@ -1,0 +1,21 @@
+{
+  "dataset": "CDVQA (Change Detection Visual Question Answering)",
+  "pair": {
+    "time1_image": "cdvqa_time1.tif",
+    "time2_image": "cdvqa_time2.tif",
+    "acquisition_dates": [
+      "2023-03-15",
+      "2024-03-15"
+    ],
+    "qa_pairs": [
+      {
+        "question": "What changed between these two dates, and where did the change occur?",
+        "ground_truth": "The water-covered surface expanded along the northern basin, increasing total surface area by approximately 26%."
+      },
+      {
+        "question": "Has the water area increased, decreased, or remained unchanged?",
+        "ground_truth": "increased"
+      }
+    ]
+  }
+}

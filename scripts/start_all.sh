@@ -72,3 +72,7 @@ else
 fi
 echo "GPU Device       : NVIDIA GeForce MX450 (CUDA Active)"
 echo "============================================================"
+
+# Send notification if webhook/bot configured
+"$SCRIPT_DIR/notify.sh" "SatQuery AI Server Online" "Server is healthy and ready for satellite inference." >/dev/null 2>&1 || true
+

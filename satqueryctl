@@ -20,19 +20,29 @@ case "$1" in
     url)
         "$DIR/scripts/get_tunnel_url.sh"
         ;;
-    set-ngrok)
-        if [ -z "$2" ] || [ -z "$3" ]; then
-            echo "Usage: ./satqueryctl set-ngrok <AUTHTOKEN> <STATIC_DOMAIN>"
-            echo "Example: ./satqueryctl set-ngrok 2tXYZ... satquery-ai.ngrok-free.app"
+    set-discord)
+        if [ -z "$2" ]; then
+            echo "Usage: ./satqueryctl set-discord <DISCORD_WEBHOOK_URL>"
             exit 1
         fi
-        echo "NGROK_AUTHTOKEN=\"$2\"" > "$ENV_FILE"
-        echo "NGROK_DOMAIN=\"$3\"" >> "$ENV_FILE"
-        echo "[+] Saved Ngrok Free Custom Domain credentials to .env"
-        echo "[+] Restarting tunnel service..."
-        systemctl --user restart satquery-tunnel.service
-        sleep 2
-        echo "[+] Live URL: https://$3"
+        echo "DISCORD_WEBHOOK_URL=\"$2\"" >> "$ENV_FILE"
+        echo "[+] Discord Webhook configured! Sending test alert..."
+        "$DIR/scripts/notify.sh" "Test Alert" "Discord webhook connected successfully to SatQuery AI!"
+        ;;
+    set-telegram)
+        if [ -z "$2" ] || [ -z "$3" ]; then
+            echo "Usage: ./satqueryctl set-telegram <TELEGRAM_BOT_TOKEN> <CHAT_ID>"
+            exit 1
+        fi
+        echo "TELEGRAM_BOT_TOKEN=\"$2\"" >> "$ENV_FILE"
+        echo "TELEGRAM_CHAT_ID=\"$3\"" >> "$ENV_FILE"
+        echo "[+] Telegram Bot configured! Sending test alert..."
+        "$DIR/scripts/notify.sh" "Test Alert" "Telegram bot connected successfully to SatQuery AI!"
+        ;;
+    test-alert)
+        echo "[+] Sending test alert via configured notification channels..."
+        "$DIR/scripts/notify.sh" "Manual Test Alert" "Everything is operating normally on the NVIDIA CUDA GPU server."
+        echo "[+] Alert sent!"
         ;;
     set-token)
         if [ -z "$2" ]; then
@@ -78,20 +88,20 @@ case "$1" in
         echo "============================================================"
         echo "SatQuery AI Control Tool (satqueryctl)"
         echo "============================================================"
-        echo "Usage: ./satqueryctl {start|stop|restart|status|url|set-ngrok|set-token|clear-token|gpu|test|logs}"
+        echo "Usage: ./satqueryctl {start|stop|restart|status|url|set-discord|set-telegram|test-alert|gpu|test|logs}"
         echo ""
         echo "Commands:"
-        echo "  start       - Enable and start 24/7 server and Tunnel"
-        echo "  stop        - Stop 24/7 services"
-        echo "  restart     - Restart 24/7 services"
-        echo "  status      - Show complete health, GPU, and tunnel status"
-        echo "  url         - Display active public HTTPS URL"
-        echo "  set-ngrok   - Configure a 100% Free custom domain (e.g. satquery-ai.ngrok-free.app)"
-        echo "  set-token   - Configure a Cloudflare Tunnel Token for your custom domain"
-        echo "  clear-token - Revert to free Cloudflare Quick Tunnel"
-        echo "  gpu         - Run NVIDIA CUDA GPU diagnostics"
-        echo "  test        - Run end-to-end multi-modal test suite on GPU"
-        echo "  logs        - Tail service logs (logs, logs tunnel, logs all)"
+        echo "  start         - Enable and start 24/7 server and Tunnel"
+        echo "  stop          - Stop 24/7 services"
+        echo "  restart       - Restart 24/7 services"
+        echo "  status        - Show complete health, GPU, and tunnel status"
+        echo "  url           - Display active public HTTPS URL"
+        echo "  set-discord   - Configure Discord Webhook notifications"
+        echo "  set-telegram  - Configure Telegram Bot notifications"
+        echo "  test-alert    - Send an instant test notification"
+        echo "  gpu           - Run NVIDIA CUDA GPU diagnostics"
+        echo "  test          - Run end-to-end multi-modal test suite on GPU"
+        echo "  logs          - Tail service logs (logs, logs tunnel, logs all)"
         echo "============================================================"
         exit 1
         ;;

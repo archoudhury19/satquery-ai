@@ -1120,9 +1120,13 @@ async function upload(kind, file) {
   resetAnalysisState();
   const fd = new FormData();
   fd.append('file', file);
-  $(kind + 'Meta').textContent = 'Uploading raster…';
   const r = await fetch('/api/upload', { method: 'POST', body: fd });
-  const j = await r.json();
+  let j = {};
+  try {
+    j = await r.json();
+  } catch(e) {
+    if (!r.ok) throw new Error(`Upload server error (HTTP ${r.status}).`);
+  }
   if (!r.ok) throw new Error(j.detail || 'Upload failed');
   
   state[kind] = j;
@@ -1214,14 +1218,18 @@ const SCENE_METADATA = {
 async function loadDemo(sampleKey) {
   try {
     resetAnalysisState();
-    $('primaryMeta').textContent = 'Loading scene…';
     const r = await fetch('/api/load_demo', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sample_key: sampleKey }),
     });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.detail || 'Failed to load demo');
+    let j = {};
+    try {
+      j = await r.json();
+    } catch(e) {
+      if (!r.ok) throw new Error(`Server is initializing (HTTP ${r.status}). Please retry in a few seconds.`);
+    }
+    if (!r.ok) throw new Error(j.detail || `Failed to load demo (HTTP ${r.status})`);
 
     state.primary = j.primary;
     $('primaryMeta').textContent = `${j.primary.filename} (${j.primary.metadata.width}×${j.primary.metadata.height})`;
@@ -1535,8 +1543,13 @@ $('ask').onclick = async () => {
       body: JSON.stringify(payload),
       signal: currentAnalysisController.signal
     });
-    const j = await r.json();
-    if (!r.ok) throw new Error(j.detail || 'Analysis failed');
+    let j = {};
+    try {
+      j = await r.json();
+    } catch(e) {
+      if (!r.ok) throw new Error(`Server busy or spinning up (HTTP ${r.status}). Please retry in a few seconds.`);
+    }
+    if (!r.ok) throw new Error(j.detail || `Analysis failed (HTTP ${r.status})`);
 
     // Prevent race condition: if user switched image while this query was computing, discard overlay
     if (state.primary?.id !== currentPrimaryId) {

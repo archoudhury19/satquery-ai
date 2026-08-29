@@ -2872,6 +2872,11 @@ def validate_pair_compatibility(
 # API
 # ============================================================
 
+@app.head("/")
+def head_home():
+    return HTMLResponse("")
+
+
 @app.get(
     "/",
     response_class=HTMLResponse,

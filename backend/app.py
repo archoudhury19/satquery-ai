@@ -126,6 +126,12 @@ class _LazyRSVLM:
             return v.analyze(*args, **kwargs)
         return {"answer": "RS-VLM unavailable in low-memory environment.", "confidence": 0.5}
 
+    def __getattr__(self, name):
+        v = self._get()
+        if v is not None:
+            return getattr(v, name)
+        raise AttributeError(f"'_LazyRSVLM' has no active underlying VLM to get attribute '{name}'")
+
 RS_VLM = _LazyRSVLM()
 
 # MVP in-memory state.

@@ -10,7 +10,7 @@ class TestRiverDetectionAPI(unittest.TestCase):
 
     def setUp(self):
         self.client = TestClient(app)
-        p_kol = Path("uploads/d32885b32880498cb70fc53f9446e43b_georef.tif")
+        p_kol = Path("demo_data/vrsbench/vrsbench_sample_01.tif")
         d_kol = read_image(p_kol)
         FILES["test_kol"] = {"path": p_kol, "data": d_kol, "filename": p_kol.name}
 

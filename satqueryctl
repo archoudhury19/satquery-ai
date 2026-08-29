@@ -49,7 +49,9 @@ case "$1" in
             echo "Usage: ./satqueryctl set-token <CLOUDFLARE_TUNNEL_TOKEN>"
             exit 1
         fi
-        echo "CLOUDFLARE_TUNNEL_TOKEN=\"$2\"" > "$ENV_FILE"
+        touch "$ENV_FILE"
+        sed -i '/CLOUDFLARE_TUNNEL_TOKEN/d' "$ENV_FILE"
+        echo "CLOUDFLARE_TUNNEL_TOKEN=\"$2\"" >> "$ENV_FILE"
         echo "[+] Saved Cloudflare Tunnel Token to .env"
         echo "[+] Restarting tunnel service..."
         systemctl --user restart satquery-tunnel.service
@@ -57,7 +59,8 @@ case "$1" in
         ;;
     clear-token)
         if [ -f "$ENV_FILE" ]; then
-            rm -f "$ENV_FILE"
+            sed -i '/CLOUDFLARE_TUNNEL_TOKEN/d' "$ENV_FILE"
+            sed -i '/NGROK_/d' "$ENV_FILE"
         fi
         echo "[+] Cleared custom tunnel credentials. Reverting to free Cloudflare Quick Tunnel..."
         systemctl --user restart satquery-tunnel.service

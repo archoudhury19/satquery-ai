@@ -1,0 +1,17 @@
+[Unit]
+Description=SatQuery AI Cloudflare Tunnel
+After=network.target satquery.service
+Wants=satquery.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/arc/.gemini/antigravity/scratch/satquery-ai
+ExecStart=/home/arc/.gemini/antigravity/scratch/satquery-ai/scripts/run_tunnel.sh
+Restart=always
+RestartSec=5
+Environment="PATH=/home/arc/.local/bin:/usr/local/bin:/usr/bin"
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

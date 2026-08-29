@@ -153,14 +153,69 @@ Open **[http://127.0.0.1:8000](http://127.0.0.1:8000)** in any modern browser to
 
 ---
 
-## 9. Running Automated Tests
+## 9. 24/7 Server & Cloudflare Tunnel Operations
+
+SatQuery AI is configured for continuous 24/7 operation with automatic process supervision, crash recovery, NVIDIA CUDA GPU acceleration, and public HTTPS exposure via Cloudflare Tunnel.
+
+### Unified Control CLI (`satqueryctl`)
+
+You can manage all 24/7 services and run diagnostics using the unified `./satqueryctl` CLI:
 
 ```bash
-# Run full automated test suite (29 tests across all benchmarks and edge cases)
-.venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py" -v
+# Start all 24/7 services (FastAPI server + Cloudflare Tunnel)
+./satqueryctl start
 
-# Run end-to-end representative query verification
-.venv\Scripts\python.exe tests/run_e2e_representative_queries.py
+# Check real-time service status, health, GPU telemetry, and public URL
+./satqueryctl status
+
+# Display the active public Cloudflare HTTPS URL
+./satqueryctl url
+
+# Run NVIDIA CUDA GPU diagnostics and tensor verification
+./satqueryctl gpu
+
+# Execute full automated system tests against the active server
+./satqueryctl test
+
+# Tail live server logs
+./satqueryctl logs
+
+# Tail live Cloudflare Tunnel logs
+./satqueryctl logs tunnel
+
+# Stop all 24/7 services
+./satqueryctl stop
+
+# Restart all 24/7 services
+./satqueryctl restart
+```
+
+### Systemd User Services Architecture
+
+The 24/7 deployment relies on two persistent systemd user services:
+
+| Service Unit | Purpose | Configuration File |
+|:---|:---|:---|
+| `satquery.service` | Supervises the FastAPI + Uvicorn server on port 8000 with CUDA GPU support, auto-restart on crash, and journal logging. | `~/.config/systemd/user/satquery.service` |
+| `satquery-tunnel.service` | Supervises `cloudflared` to expose the local server over a secure, globally accessible Cloudflare HTTPS tunnel. | `~/.config/systemd/user/satquery-tunnel.service` |
+
+### NVIDIA CUDA GPU Acceleration
+
+SatQuery AI automatically offloads vision-language embeddings and neural inference to NVIDIA GPUs:
+- **Detected Hardware**: NVIDIA GeForce MX450 (Compute Capability 7.5, CUDA 12.4 / 13.3)
+- **Framework**: PyTorch 2.6.0+cu124 with CUDA tensor acceleration
+- **Memory Footprint**: ~694 MB VRAM allocated for GeoRSCLIP ViT-B/32 backbone and RSVQA MLP adapter
+
+---
+
+## 10. Running Automated Tests
+
+```bash
+# Run tests via the control tool
+./satqueryctl test
+
+# Run full automated test suite using Python
+.venv/bin/python -m unittest discover -s tests -p "test_*.py" -v
 ```
 
 ---

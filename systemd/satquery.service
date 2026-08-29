@@ -1,0 +1,19 @@
+[Unit]
+Description=SatQuery AI Server (NVIDIA CUDA GPU Accelerated)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/arc/.gemini/antigravity/scratch/satquery-ai
+ExecStart=/home/arc/.gemini/antigravity/scratch/satquery-ai/.venv/bin/python app.py
+Restart=always
+RestartSec=3
+Environment="PORT=8000"
+Environment="CUDA_VISIBLE_DEVICES=0"
+Environment="PYTHONUNBUFFERED=1"
+Environment="PATH=/home/arc/.gemini/antigravity/scratch/satquery-ai/.venv/bin:/home/arc/.local/bin:/usr/local/bin:/usr/bin"
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

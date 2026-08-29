@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+set -e
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ENV_FILE="$DIR/.env"
+
+case "$1" in
+    start)
+        "$DIR/scripts/start_all.sh"
+        ;;
+    stop)
+        "$DIR/scripts/stop_all.sh"
+        ;;
+    restart)
+        "$DIR/scripts/restart_all.sh"
+        ;;
+    status)
+        "$DIR/scripts/status.sh"
+        ;;
+    url)
+        "$DIR/scripts/get_tunnel_url.sh"
+        ;;
+    set-ngrok)
+        if [ -z "$2" ] || [ -z "$3" ]; then
+            echo "Usage: ./satqueryctl set-ngrok <AUTHTOKEN> <STATIC_DOMAIN>"
+            echo "Example: ./satqueryctl set-ngrok 2tXYZ... satquery-ai.ngrok-free.app"
+            exit 1
+        fi
+        echo "NGROK_AUTHTOKEN=\"$2\"" > "$ENV_FILE"
+        echo "NGROK_DOMAIN=\"$3\"" >> "$ENV_FILE"
+        echo "[+] Saved Ngrok Free Custom Domain credentials to .env"
+        echo "[+] Restarting tunnel service..."
+        systemctl --user restart satquery-tunnel.service
+        sleep 2
+        echo "[+] Live URL: https://$3"
+        ;;
+    set-token)
+        if [ -z "$2" ]; then
+            echo "Usage: ./satqueryctl set-token <CLOUDFLARE_TUNNEL_TOKEN>"
+            exit 1
+        fi
+        echo "CLOUDFLARE_TUNNEL_TOKEN=\"$2\"" > "$ENV_FILE"
+        echo "[+] Saved Cloudflare Tunnel Token to .env"
+        echo "[+] Restarting tunnel service..."
+        systemctl --user restart satquery-tunnel.service
+        echo "[+] Cloudflare custom tunnel activated!"
+        ;;
+    clear-token)
+        if [ -f "$ENV_FILE" ]; then
+            rm -f "$ENV_FILE"
+        fi
+        echo "[+] Cleared custom tunnel credentials. Reverting to free Cloudflare Quick Tunnel..."
+        systemctl --user restart satquery-tunnel.service
+        sleep 3
+        "$DIR/scripts/get_tunnel_url.sh"
+        ;;
+    gpu)
+        "$DIR/scripts/check_gpu.sh"
+        ;;
+    test)
+        echo "Running SatQuery full system verification test suite..."
+        PYTHONPATH="$DIR" "$DIR/.venv/bin/python" "$DIR/tests/test_full_system.py"
+        ;;
+    logs)
+        case "$2" in
+            tunnel)
+                journalctl --user -u satquery-tunnel.service -f
+                ;;
+            server|"")
+                journalctl --user -u satquery.service -f
+                ;;
+            all)
+                journalctl --user -u satquery.service -u satquery-tunnel.service -f
+                ;;
+        esac
+        ;;
+    *)
+        echo "============================================================"
+        echo "SatQuery AI Control Tool (satqueryctl)"
+        echo "============================================================"
+        echo "Usage: ./satqueryctl {start|stop|restart|status|url|set-ngrok|set-token|clear-token|gpu|test|logs}"
+        echo ""
+        echo "Commands:"
+        echo "  start       - Enable and start 24/7 server and Tunnel"
+        echo "  stop        - Stop 24/7 services"
+        echo "  restart     - Restart 24/7 services"
+        echo "  status      - Show complete health, GPU, and tunnel status"
+        echo "  url         - Display active public HTTPS URL"
+        echo "  set-ngrok   - Configure a 100% Free custom domain (e.g. satquery-ai.ngrok-free.app)"
+        echo "  set-token   - Configure a Cloudflare Tunnel Token for your custom domain"
+        echo "  clear-token - Revert to free Cloudflare Quick Tunnel"
+        echo "  gpu         - Run NVIDIA CUDA GPU diagnostics"
+        echo "  test        - Run end-to-end multi-modal test suite on GPU"
+        echo "  logs        - Tail service logs (logs, logs tunnel, logs all)"
+        echo "============================================================"
+        exit 1
+        ;;
+esac

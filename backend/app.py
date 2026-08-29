@@ -99,8 +99,34 @@ MAX_UPLOAD_BYTES = 200 * 1024 * 1024
 # Maximum in-memory session entries before LRU eviction
 MAX_SESSION_ENTRIES = 50
 
-# Load the local adapted RS model once.
-RS_VLM = RemoteSensingVLM()
+# Lazy-loaded RS-VLM instance to stay well under Render 512MB RAM limit at boot
+class _LazyRSVLM:
+    def __init__(self):
+        self._vlm = None
+        self._attempted = False
+
+    def _get(self):
+        if not self._attempted:
+            self._attempted = True
+            try:
+                self._vlm = RemoteSensingVLM()
+            except Exception as e:
+                print(f"[WARN] RS_VLM lazy-loading skipped (low-memory environment): {e}")
+                self._vlm = None
+        return self._vlm
+
+    @property
+    def available(self):
+        v = self._get()
+        return bool(v and getattr(v, "available", False))
+
+    def analyze(self, *args, **kwargs):
+        v = self._get()
+        if v:
+            return v.analyze(*args, **kwargs)
+        return {"answer": "RS-VLM unavailable in low-memory environment.", "confidence": 0.5}
+
+RS_VLM = _LazyRSVLM()
 
 # MVP in-memory state.
 FILES: Dict[str, Dict[str, Any]] = {}

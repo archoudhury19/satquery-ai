@@ -14,7 +14,6 @@ fi
 
 if [ -n "$CLOUDFLARE_TUNNEL_TOKEN" ]; then
     echo "[+] Starting Cloudflare Zero Trust Permanent Tunnel..."
-    # Notify on boot
     "$ROOT_DIR/scripts/notify.sh" "SatQuery AI Online" "Permanent Cloudflare Zero Trust tunnel is active!" >/dev/null 2>&1 || true
     exec /home/arc/.local/bin/cloudflared tunnel --no-autoupdate run --token "$CLOUDFLARE_TUNNEL_TOKEN"
 elif [ -n "$NGROK_AUTHTOKEN" ] && [ -n "$NGROK_DOMAIN" ]; then
@@ -24,16 +23,18 @@ elif [ -n "$NGROK_AUTHTOKEN" ] && [ -n "$NGROK_DOMAIN" ]; then
 else
     # Background watcher: send Telegram alert with new URL for quick tunnel
     (
-        sleep 3
+        sleep 4
         for i in {1..30}; do
             URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' "$ROOT_DIR/logs/tunnel.log" 2>/dev/null | tail -n 1)
             if [ -n "$URL" ]; then
-                "$ROOT_DIR/scripts/notify.sh" "SatQuery AI Online" "Server booted and ready for queries." >/dev/null 2>&1 || true
+                # Wait 3s for Cloudflare edge DNS to propagate
+                sleep 3
+                "$ROOT_DIR/scripts/notify.sh" "SatQuery AI Online" "Live 24/7 server ready." >/dev/null 2>&1 || true
                 break
             fi
             sleep 1
         done
     ) &
-    echo "[+] Starting Cloudflare Quick Tunnel (http://127.0.0.1:8000)..."
-    exec /home/arc/.local/bin/cloudflared tunnel --url http://127.0.0.1:8000 --logfile "$ROOT_DIR/logs/tunnel.log" --no-autoupdate
+    echo "[+] Starting Cloudflare Quick Tunnel with HTTP2 fallback..."
+    exec /home/arc/.local/bin/cloudflared tunnel --url http://127.0.0.1:8000 --protocol http2 --logfile "$ROOT_DIR/logs/tunnel.log" --no-autoupdate
 fi

@@ -15,14 +15,18 @@ uploads/*
 generated/*
 !generated/.gitkeep
 
-# Satellite / geospatial data
-*.tif
-*.tiff
+# Satellite / geospatial data (ignore root/temp TIFs, but preserve demo_data)
 *.jp2
 *.hdf
 *.h5
+!demo_data/**/*.tif
+!demo_data/**/*.tiff
+!demo_data/*.tif
+!demo_data/*.tiff
 
-# Model weights
+# Model weights (ignore large downloads, but keep local lightweight RS adapter)
+!models/checkpoints/**/*.pt
+!models/checkpoints/**/*.json
 *.pt
 *.pth
 *.ckpt

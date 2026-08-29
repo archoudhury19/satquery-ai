@@ -10,10 +10,13 @@ pinned: false
 
 # SatQuery AI: Agentic Vision-Language Remote-Sensing Intelligence Platform
 
-[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/release/python-3110/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green.svg)](https://fastapi.tiangolo.com/)
+[![Python 3.11 | 3.12](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue.svg)](https://www.python.org/)
+[![PyTorch CUDA](https://img.shields.io/badge/PyTorch-2.6%20%2B%20CUDA%2012.4-ee4c2c.svg?logo=pytorch)](https://pytorch.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-green.svg?logo=fastapi)](https://fastapi.tiangolo.com/)
+[![Cloudflare Tunnel](https://img.shields.io/badge/Cloudflare-Tunnel%2024%2F7-f38020.svg?logo=cloudflare)](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+[![NVIDIA GPU](https://img.shields.io/badge/NVIDIA-CUDA%20Accelerated-76b900.svg?logo=nvidia)](https://developer.nvidia.com/cuda-zone)
 [![GeoRSCLIP](https://img.shields.io/badge/Model-GeoRSCLIP_ViT--B/32-orange.svg)](https://huggingface.co/)
-[![Tests](https://img.shields.io/badge/Tests-29%2F29%20Passing-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/Tests-All%20Passing-brightgreen.svg)]()
 
 **SatQuery AI** is an agentic, query-driven vision-language platform designed for advanced Earth Observation (EO) and remote-sensing image understanding. It seamlessly orchestrates a domain-adapted vision-language model (`GeoRSCLIP` + `RSVQA` adapter) alongside modular geospatial spectral and radar engines to execute complex analytical workflows across single optical/SAR images, bi-temporal change pairs, and co-registered cross-modal optical–SAR datasets.
 

@@ -11,7 +11,18 @@ if [ -f "$ENV_FILE" ]; then
     set +a
 fi
 
-# 1. If custom Ngrok domain is configured
+# 1. If Tailscale Funnel is active, return permanent *.ts.net URL
+TS_BIN="/home/arc/.local/bin/tailscale"
+TS_SOCK="/home/arc/.local/share/tailscale/tailscaled.sock"
+if [ -x "$TS_BIN" ] && [ -S "$TS_SOCK" ]; then
+    TS_URL=$("$TS_BIN" --socket="$TS_SOCK" funnel status 2>/dev/null | grep -o 'https://[a-zA-Z0-9.-]*\.ts\.net' | head -n 1)
+    if [ -n "$TS_URL" ]; then
+        echo "$TS_URL"
+        exit 0
+    fi
+fi
+
+# 2. If custom Ngrok domain is configured
 if [ -n "$NGROK_DOMAIN" ]; then
     echo "https://$NGROK_DOMAIN"
     exit 0

@@ -78,10 +78,26 @@ ALLOWED_EXT = {
     ".jpeg",
 }
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(
     title="SatQuery AI MVP",
     version="0.7.0",
 )
+
+# Allow browser clients on any origin (dev/local) — restrict in production
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Maximum upload size: 200 MB
+MAX_UPLOAD_BYTES = 200 * 1024 * 1024
+
+# Maximum in-memory session entries before LRU eviction
+MAX_SESSION_ENTRIES = 50
 
 # Load the local adapted RS model once.
 RS_VLM = RemoteSensingVLM()
@@ -173,94 +189,100 @@ def _read_raster(
       - georeferencing state
     """
 
-    with rasterio.open(path) as src:
+    try:
+        with rasterio.open(path) as src:
 
-        count = src.count
+            count = src.count
 
-        descriptions = [
-            description or ""
-            for description
-            in src.descriptions
-        ]
+            descriptions = [
+                description or ""
+                for description
+                in src.descriptions
+            ]
 
-        if count >= 3:
-            raw_bands = src.read([1, 2, 3])
-            # If raster is uint8, preserve exact radiometric RGB values without distorting color balance
-            if src.dtypes[0] == 'uint8':
-                rgb = np.moveaxis(raw_bands, 0, -1).astype(np.uint8)
-            else:
-                # Joint normalization across all 3 bands to preserve relative R/G/B ratios
-                a = raw_bands.astype(np.float32)
-                finite = np.isfinite(a)
-                if finite.any():
-                    lo, hi = np.percentile(a[finite], [2, 98])
-                    if hi <= lo:
-                        lo, hi = float(np.nanmin(a)), float(np.nanmax(a))
-                    if hi > lo:
-                        a = np.clip((a - lo) / (hi - lo), 0.0, 1.0) * 255.0
-                    rgb = np.moveaxis(a.astype(np.uint8), 0, -1)
+            if count >= 3:
+                raw_bands = src.read([1, 2, 3])
+                # If raster is uint8, preserve exact radiometric RGB values without distorting color balance
+                if src.dtypes[0] == 'uint8':
+                    rgb = np.moveaxis(raw_bands, 0, -1).astype(np.uint8)
                 else:
-                    rgb = np.zeros((src.height, src.width, 3), dtype=np.uint8)
-        else:
-            band = _normalize_band(
-                src.read(1)
-            )
-            rgb = np.stack(
-                [band, band, band],
-                axis=-1,
-            )
-
-        bands_dict = {}
-        if count >= 4:
-            bands_dict["red"] = src.read(1)
-            bands_dict["green"] = src.read(2)
-            bands_dict["blue"] = src.read(3)
-            bands_dict["nir"] = src.read(4)
-            if count >= 6:
-                bands_dict["swir1"] = src.read(5)
-                bands_dict["swir2"] = src.read(6)
-
-        bounds_wgs84 = None
-        centroid_wgs84 = None
-        if src.crs:
-            try:
-                left, bottom, right, top = rasterio.warp.transform_bounds(
-                    src.crs, "EPSG:4326", src.bounds.left, src.bounds.bottom, src.bounds.right, src.bounds.top
+                    # Joint normalization across all 3 bands to preserve relative R/G/B ratios
+                    a = raw_bands.astype(np.float32)
+                    finite = np.isfinite(a)
+                    if finite.any():
+                        lo, hi = np.percentile(a[finite], [2, 98])
+                        if hi <= lo:
+                            lo, hi = float(np.nanmin(a)), float(np.nanmax(a))
+                        if hi > lo:
+                            a = np.clip((a - lo) / (hi - lo), 0.0, 1.0) * 255.0
+                        rgb = np.moveaxis(a.astype(np.uint8), 0, -1)
+                    else:
+                        rgb = np.zeros((src.height, src.width, 3), dtype=np.uint8)
+            else:
+                band = _normalize_band(
+                    src.read(1)
                 )
-                bounds_wgs84 = [[bottom, left], [top, right]]
-                centroid_wgs84 = {"lat": round((bottom + top) / 2.0, 5), "lon": round((left + right) / 2.0, 5)}
-            except Exception:
-                pass
+                rgb = np.stack(
+                    [band, band, band],
+                    axis=-1,
+                )
 
-        return {
-            "rgb": rgb,
-            "bands": bands_dict,
-            "width": src.width,
-            "height": src.height,
-            "count": count,
-            "crs": (
-                src.crs.to_string()
-                if src.crs
-                else None
-            ),
-            "transform": tuple(
-                src.transform
-            ),
-            "bounds": [
-                src.bounds.left,
-                src.bounds.bottom,
-                src.bounds.right,
-                src.bounds.top,
-            ],
-            "bounds_wgs84": bounds_wgs84,
-            "centroid_wgs84": centroid_wgs84,
-            "descriptions": descriptions,
-            "dtypes": list(src.dtypes),
-            "driver": src.driver,
-            "is_georeferenced": bool(
-                src.crs
-            ),
-        }
+            bands_dict = {}
+            if count >= 4:
+                bands_dict["red"] = src.read(1)
+                bands_dict["green"] = src.read(2)
+                bands_dict["blue"] = src.read(3)
+                bands_dict["nir"] = src.read(4)
+                if count >= 6:
+                    bands_dict["swir1"] = src.read(5)
+                    bands_dict["swir2"] = src.read(6)
+
+            bounds_wgs84 = None
+            centroid_wgs84 = None
+            if src.crs:
+                try:
+                    left, bottom, right, top = rasterio.warp.transform_bounds(
+                        src.crs, "EPSG:4326", src.bounds.left, src.bounds.bottom, src.bounds.right, src.bounds.top
+                    )
+                    bounds_wgs84 = [[bottom, left], [top, right]]
+                    centroid_wgs84 = {"lat": round((bottom + top) / 2.0, 5), "lon": round((left + right) / 2.0, 5)}
+                except Exception:
+                    pass
+
+            return {
+                "rgb": rgb,
+                "bands": bands_dict,
+                "width": src.width,
+                "height": src.height,
+                "count": count,
+                "crs": (
+                    src.crs.to_string()
+                    if src.crs
+                    else None
+                ),
+                "transform": tuple(
+                    src.transform
+                ),
+                "bounds": [
+                    src.bounds.left,
+                    src.bounds.bottom,
+                    src.bounds.right,
+                    src.bounds.top,
+                ],
+                "bounds_wgs84": bounds_wgs84,
+                "centroid_wgs84": centroid_wgs84,
+                "descriptions": descriptions,
+                "dtypes": list(src.dtypes),
+                "driver": src.driver,
+                "is_georeferenced": bool(
+                    src.crs
+                ),
+            }
+
+    except rasterio.errors.RasterioIOError as exc:
+        raise ValueError(f"Cannot read raster '{path.name}': {exc}") from exc
+    except Exception as exc:
+        raise ValueError(f"Unexpected error reading '{path.name}': {exc}") from exc
 
 
 def _read_standard(
@@ -338,6 +360,7 @@ def read_image(
     )
 
 
+
 def save_preview(
     rgb: np.ndarray,
     stem: str,
@@ -348,13 +371,26 @@ def save_preview(
         / f"{stem}_preview.png"
     )
 
-    cv2.imwrite(
-        str(output),
-        cv2.cvtColor(
-            rgb,
-            cv2.COLOR_RGB2BGR,
-        ),
-    )
+    try:
+        # Ensure rgb is 3-channel uint8 before writing
+        img = rgb
+        if img.ndim == 2:
+            img = np.stack([img, img, img], axis=-1)
+        if img.shape[2] > 3:
+            img = img[:, :, :3]
+        success = cv2.imwrite(
+            str(output),
+            cv2.cvtColor(
+                img.astype(np.uint8),
+                cv2.COLOR_RGB2BGR,
+            ),
+        )
+        if not success:
+            # cv2 returned False — disk full or bad path; use a fallback name
+            fallback = GENERATED_DIR / f"{stem}_preview_err.png"
+            return fallback.name
+    except Exception:
+        pass  # Non-fatal: preview missing is acceptable
 
     return output.name
 
@@ -2964,9 +3000,19 @@ async def upload(
 
     content = await file.read()
 
-    target.write_bytes(
-        content
-    )
+    # Enforce upload size limit
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum allowed size is {MAX_UPLOAD_BYTES // (1024*1024)} MB.",
+        )
+
+    target.write_bytes(content)
+
+    # Evict oldest session entries when cache is full (LRU-style)
+    if len(FILES) >= MAX_SESSION_ENTRIES:
+        oldest_key = next(iter(FILES))
+        FILES.pop(oldest_key, None)
 
     try:
 
@@ -3696,12 +3742,9 @@ def analyze(
         ),
 
         "overlay_url": (
-            f"/generated/"
-            f"{result['overlay']}"
-            if result.get(
-                "overlay"
-            )
-            else None
+            f"/generated/{result.get('overlay')}"
+            if result.get("overlay")
+            else result.get("overlay_url")
         ),
 
         "bounding_box": result.get(

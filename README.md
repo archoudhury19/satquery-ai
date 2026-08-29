@@ -1,13 +1,3 @@
----
-title: SatQuery AI
-emoji: 🛰️
-colorFrom: blue
-colorTo: indigo
-sdk: gradio
-app_file: app.py
-pinned: false
----
-
 # SatQuery AI: Agentic Vision-Language Remote-Sensing Intelligence Platform
 
 [![Python 3.11 | 3.12](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue.svg)](https://www.python.org/)

@@ -315,8 +315,8 @@ def detect_rgb_water(
     urban_texture = (edge_density > 0.14) & (saturation < 95.0) & (gray > p50)
 
     chromatic_cand = (blue_dominant | blue_green) & (smooth | low_edge)
-    pale_river_cand = neutral_water & (local_std <= max(texture_limit * 1.25, 12.0)) & (edge_density <= 0.12) & ~vegetation_like
-    dark_smooth_cand = (gray < p50) & (saturation < 125.0) & (smooth | low_edge) & (blue_dominant | blue_green | neutral_water | (value > 10.0))
+    pale_river_cand = neutral_water & (local_std <= max(texture_limit * 1.25, 12.0)) & (edge_density <= 0.12) & ~vegetation_like & (blue >= red - 10.0)
+    dark_smooth_cand = (gray < 75.0) & (saturation < 125.0) & (smooth | low_edge) & (blue_dominant | blue_green | ((blue >= red - 5.0) & (green >= red - 10.0)))
 
     candidate = (
         np.asarray(chromatic_cand, dtype=bool)
@@ -326,7 +326,9 @@ def detect_rgb_water(
     )
     candidate &= ~np.asarray(vegetation_like, dtype=bool)
     candidate &= ~np.asarray(urban_texture, dtype=bool)
-    candidate &= ~((gray > p90) & (saturation < 55.0) & (edge_density > 0.08))
+    # Exclude warm desert sand/rock (red exceeds blue) and bright mineral bathtub ring
+    candidate &= ~((red > blue + 12.0) & (red > green - 2.0))
+    candidate &= ~(gray > 160.0)
 
     mask = np.asarray(candidate, dtype=np.uint8) * 255
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))

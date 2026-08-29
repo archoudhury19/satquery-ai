@@ -54,6 +54,16 @@ def understand_query(
             "expanded",
             "difference",
             "delta",
+            "fire",
+            "burn",
+            "scar",
+            "wildfire",
+            "damage",
+            "affected",
+            "deforestation",
+            "loss",
+            "flood",
+            "inundation",
         ]
     )
 

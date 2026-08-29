@@ -283,9 +283,12 @@ def segment_with_clip(
     #   Grey concrete:      |R-G| < 24, |G-B| < 24 (neutral grey, any brightness)
     # ----------------------------------------------------------------
 
-    # 0. Soil / Sand / Desert / Rock (Dunes, arid soil — smooth terrain without rooftop/street edge density)
-    #    Key: yellow/warm chromaticity. G-B > 8 distinguishes sandy soil from brick (G-B ≤ 6)
-    is_soil_or_sand = (r_f >= g_f - 3) & (r_f > b_f + 16) & (g_f > b_f + 8) & (b_f < 140) & (~has_dense_edges)
+    # 0. Soil / Sand / Desert / Rock / Mineral Shorelines (Dunes, arid soil, bathtub ring)
+    #    Key: yellow/warm chromaticity or high-reflectance mineral/sand flat without building edges
+    is_soil_or_sand = (
+        ((r_f >= g_f - 3) & (r_f > b_f + 16) & (g_f > b_f + 8) & (b_f < 140) & (~has_dense_edges)) |
+        ((mean_br > 170) & (r_f >= b_f + 10) & (g_f >= b_f + 5) & (~has_dense_edges))
+    )
     accum_scores[:, :, bare_idx]  += np.where(is_soil_or_sand, 2.5, 0.0)
     accum_scores[:, :, veg_idx]   -= np.where(is_soil_or_sand, 2.5, 0.0)
     accum_scores[:, :, water_idx] -= np.where(is_soil_or_sand, 2.5, 0.0)

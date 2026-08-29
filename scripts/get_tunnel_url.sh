@@ -11,24 +11,7 @@ if [ -f "$ENV_FILE" ]; then
     set +a
 fi
 
-# 1. If Tailscale Funnel is active, return permanent *.ts.net URL
-TS_BIN="/home/arc/.local/bin/tailscale"
-TS_SOCK="/home/arc/.local/share/tailscale/tailscaled.sock"
-if [ -x "$TS_BIN" ] && [ -S "$TS_SOCK" ]; then
-    TS_URL=$("$TS_BIN" --socket="$TS_SOCK" funnel status 2>/dev/null | grep -o 'https://[a-zA-Z0-9.-]*\.ts\.net' | head -n 1)
-    if [ -n "$TS_URL" ]; then
-        echo "$TS_URL"
-        exit 0
-    fi
-fi
-
-# 2. If custom Ngrok domain is configured
-if [ -n "$NGROK_DOMAIN" ]; then
-    echo "https://$NGROK_DOMAIN"
-    exit 0
-fi
-
-# 2. Check tunnel log for Cloudflare URL
+# 1. Check tunnel log for Cloudflare URL (Primary)
 if [ -f "$LOG_FILE" ]; then
     URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' "$LOG_FILE" | tail -n 1)
     if [ -n "$URL" ]; then
@@ -37,11 +20,22 @@ if [ -f "$LOG_FILE" ]; then
     fi
 fi
 
-# 3. Fallback to journalctl
+# 2. Check journalctl for Cloudflare URL
 JOURNAL_URL=$(journalctl --user -u satquery-tunnel.service -n 50 --no-pager 2>/dev/null | grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' | tail -n 1)
 if [ -n "$JOURNAL_URL" ]; then
     echo "$JOURNAL_URL"
     exit 0
+fi
+
+# 3. If Tailscale Funnel is active, fallback to *.ts.net URL
+TS_BIN="/home/arc/.local/bin/tailscale"
+TS_SOCK="/home/arc/.local/share/tailscale/tailscaled.sock"
+if [ -x "$TS_BIN" ] && [ -S "$TS_SOCK" ]; then
+    TS_URL=$("$TS_BIN" --socket="$TS_SOCK" funnel status 2>/dev/null | grep -o 'https://[a-zA-Z0-9.-]*\.ts\.net' | head -n 1)
+    if [ -n "$TS_URL" ]; then
+        echo "$TS_URL"
+        exit 0
+    fi
 fi
 
 echo "Tunnel connecting..."

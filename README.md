@@ -70,7 +70,59 @@ SatQuery AI provides an evidence-grounded remote-sensing assistant that accepts 
 
 ---
 
-## 3. Supported Inputs
+## 3. Repository & Directory Structure
+
+```text
+satquery-ai/
+├── app.py                          # Root entry-point launcher for cloud & local deployments
+├── satqueryctl                     # Unified CLI tool for 24/7 server, GPU, alerts, and tests
+├── requirements.txt                # Python package dependencies (PyTorch, FastAPI, Rasterio, OpenCLIP)
+├── backend/
+│   └── app.py                      # Core FastAPI backend, REST endpoints, and orchestration logic
+├── agent/
+│   ├── planner.py                  # Agentic execution planner & step synthesizer
+│   └── router.py                   # Natural-language query intent & specialist router
+├── models/
+│   ├── rs_vlm.py                   # GeoRSCLIP ViT-B/32 backbone + RSVQA Adapter + Visual Grounder
+│   └── checkpoints/                # Model weights directory (RSVQA MLP Adapter checkpoint)
+├── geospatial/
+│   ├── water_detector.py           # Radiometric spectral engines (NDWI, NDVI, AWEI, NDBI)
+│   ├── change_detector.py          # Bi-temporal change detection & quantitative delta metrics
+│   ├── clip_segmenter.py           # Vectorized zero-shot multi-class AI segmentation engine
+│   └── fusion.py                   # SAR dB calibration & optical-SAR cross-modal consensus fusion
+├── frontend/
+│   ├── index.html                  # Interactive GIS Leaflet map & orthomosaic pixel dashboard
+│   ├── app.js                      # Client-side map controllers, layer rendering, and API sync
+│   └── style.css                   # Responsive dark-mode interface styling
+├── demo_data/                      # Curated benchmark datasets (1-click interactive presets)
+│   ├── bigearthnet/                # Sentinel-2 4-band multispectral tile (B02, B03, B04, B08)
+│   ├── vrsbench/                   # 0.5m high-resolution optical imagery (Kolkata Urban)
+│   ├── isro_sac/                   # Co-registered Cartosat-2S optical + RISAT-1 SAR dataset
+│   ├── cdvqa/                      # Bi-temporal California wildfire burn scar pair (T1 & T2)
+│   └── edge_cases/                 # Global Sentinel-2 L2A tiles (Amazon, Paris, Sahara, Delta, etc.)
+├── scripts/                        # Automated deployment, monitoring, and notification utilities
+│   ├── run_tunnel.sh               # Cloudflare Tunnel runner with HTTP/2 transport & boot alerts
+│   ├── notify.sh                   # Telegram Bot & Discord Webhook alert dispatcher
+│   ├── check_gpu.sh                # NVIDIA CUDA hardware diagnostics & tensor verification
+│   ├── get_tunnel_url.sh           # Active public HTTPS URL extractor
+│   ├── start_all.sh                # 24/7 background services start script
+│   ├── stop_all.sh                 # 24/7 background services stop script
+│   └── status.sh                   # Real-time health & telemetry dashboard
+├── systemd/                        # Persistent systemd user service definitions
+│   ├── satquery.service            # FastAPI + CUDA server supervisor (Restart=always)
+│   └── satquery-tunnel.service     # Cloudflare Tunnel supervisor
+└── tests/                          # Comprehensive automated test suite (29 tests passing)
+    ├── test_queries.py             # The 5 mandatory representative benchmark queries
+    ├── test_edge_cases.py          # Real-world global Sentinel-2 edge case evaluations
+    ├── test_benchmarks.py          # RSVQA, VRSBench, CDVQA, and Optical-SAR evaluations
+    ├── test_river_api.py           # Water body grounding & spatial bounding box tests
+    ├── test_water_detector.py      # Radiometric index & spectral band resolution tests
+    └── test_full_system.py         # End-to-end multi-modal audit verification script
+```
+
+---
+
+## 4. Supported Inputs
 
 | Input Configuration | Modality / Sensor | Supported File Formats | Use Cases |
 |:---|:---|:---|:---|
@@ -80,7 +132,7 @@ SatQuery AI provides an evidence-grounded remote-sensing assistant that accepts 
 
 ---
 
-## 4. Supported Queries & Specialist Tasks
+## 5. Supported Queries & Specialist Tasks
 
 1. **Visual Question Answering (VQA)**: Single-image remote-sensing questions (e.g. land-cover presence, urban vs. rural classification).
 2. **Scene Captioning & Description**: Comprehensive land-cover summarization adhering to the VRSBench standard.
@@ -92,7 +144,7 @@ SatQuery AI provides an evidence-grounded remote-sensing assistant that accepts 
 
 ---
 
-## 5. Models & Specialists Registry
+## 6. Models & Specialists Registry
 
 | Specialist Name | Component Type | Implementation Location | Purpose |
 |:---|:---|:---|:---|
@@ -106,7 +158,7 @@ SatQuery AI provides an evidence-grounded remote-sensing assistant that accepts 
 
 ---
 
-## 6. Remote-Sensing Adaptation Details
+## 7. Remote-Sensing Adaptation Details
 
 To satisfy the mandatory adaptation requirement without relying on generic non-adapted computer vision models:
 
@@ -123,7 +175,7 @@ To satisfy the mandatory adaptation requirement without relying on generic non-a
 
 ---
 
-## 7. Installation
+## 8. Installation
 
 ```bash
 # Clone the repository
@@ -139,7 +191,7 @@ pip install -r requirements.txt
 
 ---
 
-## 8. Starting the Web Dashboard
+## 9. Starting the Web Dashboard
 
 ```bash
 # Start FastAPI backend with live reload
@@ -150,7 +202,7 @@ Open **[http://127.0.0.1:8000](http://127.0.0.1:8000)** in any modern browser to
 
 ---
 
-## 9. 24/7 Server & Cloudflare Tunnel Operations
+## 10. 24/7 Server & Cloudflare Tunnel Operations
 
 SatQuery AI is configured for continuous 24/7 operation with automatic process supervision, crash recovery, NVIDIA CUDA GPU acceleration, and public HTTPS exposure via Cloudflare Tunnel.
 
@@ -205,7 +257,7 @@ SatQuery AI automatically offloads vision-language embeddings and neural inferen
 
 ---
 
-## 10. Running Automated Tests
+## 11. Running Automated Tests
 
 ```bash
 # Run tests via the control tool
@@ -217,7 +269,7 @@ SatQuery AI automatically offloads vision-language embeddings and neural inferen
 
 ---
 
-## 10. The 5 Mandatory Representative Queries
+## 12. The 5 Mandatory Representative Queries
 
 | Task | Exact Query | Sample Input | Expected Output |
 |:---|:---|:---|:---|
@@ -229,7 +281,7 @@ SatQuery AI automatically offloads vision-language embeddings and neural inferen
 
 ---
 
-## 11. Outputs & Visual Evidence
+## 13. Outputs & Visual Evidence
 
 Every analysis query returns:
 - **Textual Answer**: Domain-specific answer with calibrated confidence percentage.
@@ -240,7 +292,7 @@ Every analysis query returns:
 
 ---
 
-## 12. Known Limitations
+## 14. Known Limitations
 
 - **Co-Registration Quality**: Cross-modal fusion assumes images are reasonably aligned; severely misaligned pairs require prior ground control point (GCP) orthorectification.
 - **Cloud Cover in Optical Bands**: Dense cloud cover can obscure optical spectral indices; SAR backscatter thresholding is used as a fallback for water and urban structure.
@@ -248,7 +300,7 @@ Every analysis query returns:
 
 ---
 
-## 13. Citations & References
+## 15. Citations & References
 - **BigEarthNet.txt**: A Large-Scale Multi-Sensor Image-Text Dataset and Benchmark for Earth Observation ([arXiv:2603.29630](https://arxiv.org/abs/2603.29630))
 - **GeoRSCLIP**: Remote Sensing Vision-Language Pre-training with Open-Vocabulary Capabilities
 - **RSVQA / VRSBench / CDVQA**: Benchmark datasets for Remote Sensing VQA, Captioning, and Change Understanding.

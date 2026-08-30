@@ -1,6 +1,6 @@
 # SatQuery AI: Agentic Vision-Language Remote-Sensing Intelligence Platform
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-Online%2024%2F7-success?style=for-the-badge&logo=cloudflare)](https://contribute-cartoons-furnishings-motorola.trycloudflare.com)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Online%2024%2F7-success?style=for-the-badge&logo=cloudflare)](https://rejected-booking-nuts-silly.trycloudflare.com)
 [![Python 3.11 | 3.12](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue.svg)](https://www.python.org/)
 [![PyTorch CUDA](https://img.shields.io/badge/PyTorch-2.6%20%2B%20CUDA%2012.4-ee4c2c.svg?logo=pytorch)](https://pytorch.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-green.svg?logo=fastapi)](https://fastapi.tiangolo.com/)
@@ -9,7 +9,7 @@
 [![Tests](https://img.shields.io/badge/Tests-All%20Passing-brightgreen.svg)]()
 
 > 🛰️ **Try SatQuery AI Live (24/7 GPU Accelerated Server)**:  
-> 👉 **[https://contribute-cartoons-furnishings-motorola.trycloudflare.com](https://contribute-cartoons-furnishings-motorola.trycloudflare.com)**  
+> 👉 **[https://rejected-booking-nuts-silly.trycloudflare.com](https://rejected-booking-nuts-silly.trycloudflare.com)**  
 > *(Includes 1-click demo presets for Sentinel-2, Kolkata Urban, Cartosat+RISAT, and Wildfire Change Analysis)*
 
 **SatQuery AI** is an agentic, query-driven vision-language platform designed for advanced Earth Observation (EO) and remote-sensing image understanding. It seamlessly orchestrates a domain-adapted vision-language model (`GeoRSCLIP` + `RSVQA` adapter) alongside modular geospatial spectral and radar engines to execute complex analytical workflows across single optical/SAR images, bi-temporal change pairs, and co-registered cross-modal optical–SAR datasets.

@@ -5,6 +5,12 @@ ROOT_DIR="/home/arc/.gemini/antigravity/scratch/satquery-ai"
 ENV_FILE="$ROOT_DIR/.env"
 mkdir -p "$ROOT_DIR/logs"
 
+# Auto-truncate log if it exceeds 5MB for 24/7 disk preservation
+if [ -f "$ROOT_DIR/logs/tunnel.log" ] && [ "$(stat -c%s "$ROOT_DIR/logs/tunnel.log" 2>/dev/null || echo 0)" -gt 5242880 ]; then
+    tail -n 2000 "$ROOT_DIR/logs/tunnel.log" > "$ROOT_DIR/logs/tunnel.log.tmp"
+    mv "$ROOT_DIR/logs/tunnel.log.tmp" "$ROOT_DIR/logs/tunnel.log"
+fi
+
 # Load environment variables if available
 if [ -f "$ENV_FILE" ]; then
     set -a

@@ -3726,7 +3726,7 @@ def analyze(
     # Final response
     # --------------------------------------------------------
 
-    return {
+    response_payload = {
         "query": req.query,
 
         "task": task,
@@ -3775,7 +3775,8 @@ def analyze(
         ),
 
         "evidence": result.get(
-            "evidence"
+            "evidence",
+            {},
         ),
 
         "overlay_url": (
@@ -3819,6 +3820,16 @@ def analyze(
             "but is not a learned multimodal model."
         ),
     }
+
+    # Flush transient GPU memory buffers to keep hardware cold in idle P8 state
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
+
+    return response_payload
 
 
 # ============================================================

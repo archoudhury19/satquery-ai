@@ -18,9 +18,9 @@ if [ -f "$ENV_FILE" ]; then
 fi
 
 if [ -n "$CLOUDFLARE_TUNNEL_TOKEN" ]; then
-    echo "[+] Starting Cloudflare Zero Trust Permanent Tunnel..."
+    echo "[+] Starting Cloudflare Zero Trust Permanent Tunnel (protocol=http2 for mobile compatibility)..."
     "$ROOT_DIR/scripts/notify.sh" "SatQuery AI Online" "Permanent Cloudflare Zero Trust tunnel is active!" >/dev/null 2>&1 || true
-    exec /home/arc/.local/bin/cloudflared tunnel --no-autoupdate run --token "$CLOUDFLARE_TUNNEL_TOKEN"
+    exec /home/arc/.local/bin/cloudflared tunnel --no-autoupdate --protocol http2 run --token "$CLOUDFLARE_TUNNEL_TOKEN"
 elif [ -n "$NGROK_AUTHTOKEN" ] && [ -n "$NGROK_DOMAIN" ]; then
     echo "[+] Starting Ngrok Free Custom Domain Tunnel ($NGROK_DOMAIN)..."
     /home/arc/.local/bin/ngrok config add-authtoken "$NGROK_AUTHTOKEN" >/dev/null 2>&1 || true
@@ -33,12 +33,12 @@ else
             URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' "$ROOT_DIR/logs/tunnel.log" 2>/dev/null | tail -n 1)
             if [ -n "$URL" ]; then
                 sleep 2
-                "$ROOT_DIR/scripts/notify.sh" "SatQuery AI Online" "Live 24/7 server ready." >/dev/null 2>&1 || true
+                "$ROOT_DIR/scripts/notify.sh" "SatQuery AI Online (Mobile Tether)" "Live 24/7 server ready on Mobile Tethering:\n$URL" >/dev/null 2>&1 || true
                 break
             fi
             sleep 1
         done
     ) &
-    echo "[+] Starting Cloudflare Quick Tunnel..."
-    exec /home/arc/.local/bin/cloudflared tunnel --url http://127.0.0.1:8000 --logfile "$ROOT_DIR/logs/tunnel.log" --no-autoupdate
+    echo "[+] Starting Cloudflare Quick Tunnel with HTTP/2 (bypasses mobile carrier port 7844 blocking)..."
+    exec /home/arc/.local/bin/cloudflared tunnel --url http://127.0.0.1:8000 --protocol http2 --logfile "$ROOT_DIR/logs/tunnel.log" --no-autoupdate
 fi

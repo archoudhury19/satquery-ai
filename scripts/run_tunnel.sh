@@ -18,27 +18,56 @@ if [ -f "$ENV_FILE" ]; then
 fi
 
 if [ -n "$CLOUDFLARE_TUNNEL_TOKEN" ]; then
-    echo "[+] Starting Cloudflare Zero Trust Permanent Tunnel (protocol=http2 for mobile compatibility)..."
+    echo "[+] Starting Cloudflare Zero Trust Permanent Tunnel..."
     "$ROOT_DIR/scripts/notify.sh" "SatQuery AI Online" "Permanent Cloudflare Zero Trust tunnel is active!" >/dev/null 2>&1 || true
     exec /home/arc/.local/bin/cloudflared tunnel --no-autoupdate --protocol http2 run --token "$CLOUDFLARE_TUNNEL_TOKEN"
 elif [ -n "$NGROK_AUTHTOKEN" ] && [ -n "$NGROK_DOMAIN" ]; then
     echo "[+] Starting Ngrok Free Custom Domain Tunnel ($NGROK_DOMAIN)..."
     /home/arc/.local/bin/ngrok config add-authtoken "$NGROK_AUTHTOKEN" >/dev/null 2>&1 || true
     exec /home/arc/.local/bin/ngrok http --domain="$NGROK_DOMAIN" 8000 --log=stdout --log-level=info
-else
-    # Background watcher: send Telegram alert with new URL for quick tunnel
+fi
+
+echo "[+] Starting Multi-Network Failover Supervisor (Wi-Fi Primary <-> USB Tether Backup)..."
+
+CURRENT_IFACE=$(ip route show default 2>/dev/null | awk '{print $5}' | head -n 1)
+
+while true; do
+    # Launch cloudflared with HTTP/2 (carrier compatible)
+    /home/arc/.local/bin/cloudflared tunnel --url http://127.0.0.1:8000 --protocol http2 --logfile "$ROOT_DIR/logs/tunnel.log" --no-autoupdate &
+    TUNNEL_PID=$!
+
+    # Wait for initial URL and notify
     (
         sleep 4
         for i in {1..30}; do
             URL=$(grep -o 'https://[a-zA-Z0-9-]*\.trycloudflare\.com' "$ROOT_DIR/logs/tunnel.log" 2>/dev/null | tail -n 1)
             if [ -n "$URL" ]; then
-                sleep 2
-                "$ROOT_DIR/scripts/notify.sh" "SatQuery AI Online (Mobile Tether)" "Live 24/7 server ready on Mobile Tethering:\n$URL" >/dev/null 2>&1 || true
+                IFACE=$(ip route show default 2>/dev/null | awk '{print $5}' | head -n 1)
+                IFACE_NAME="Wi-Fi"
+                if [[ "$IFACE" =~ ^enp.*u[0-9]+ ]]; then
+                    IFACE_NAME="Mobile USB Tethering"
+                fi
+                "$ROOT_DIR/scripts/notify.sh" "SatQuery AI ($IFACE_NAME)" "Live 24/7 server online via $IFACE_NAME:\n$URL" >/dev/null 2>&1 || true
                 break
             fi
             sleep 1
         done
     ) &
-    echo "[+] Starting Cloudflare Quick Tunnel with HTTP/2 (bypasses mobile carrier port 7844 blocking)..."
-    exec /home/arc/.local/bin/cloudflared tunnel --url http://127.0.0.1:8000 --protocol http2 --logfile "$ROOT_DIR/logs/tunnel.log" --no-autoupdate
-fi
+
+    # Network watcher loop: detect interface change or network drop
+    while kill -0 "$TUNNEL_PID" 2>/dev/null; do
+        sleep 5
+        NEW_IFACE=$(ip route show default 2>/dev/null | awk '{print $5}' | head -n 1)
+        if [ -n "$NEW_IFACE" ] && [ "$NEW_IFACE" != "$CURRENT_IFACE" ]; then
+            echo "[!] Network route changed from $CURRENT_IFACE to $NEW_IFACE! Triggering auto-reconnect..."
+            CURRENT_IFACE="$NEW_IFACE"
+            kill "$TUNNEL_PID" 2>/dev/null || true
+            sleep 2
+            break
+        fi
+    done
+
+    wait "$TUNNEL_PID" 2>/dev/null || true
+    echo "[!] Tunnel process exited. Reconnecting in 2s..."
+    sleep 2
+done

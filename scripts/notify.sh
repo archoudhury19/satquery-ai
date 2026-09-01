@@ -28,6 +28,7 @@ fi
 if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
     TEXT=$(echo -e "$PAYLOAD")
     curl -s -X POST "https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage" \
-         -d "chat_id=$TELEGRAM_CHAT_ID" \
-         -d "text=$TEXT" > /dev/null 2>&1 || true
+         --data-urlencode "chat_id=$TELEGRAM_CHAT_ID" \
+         --data-urlencode "text=$TEXT" \
+         --data-urlencode "disable_web_page_preview=false" >> "$ROOT_DIR/logs/notify.log" 2>&1 || true
 fi

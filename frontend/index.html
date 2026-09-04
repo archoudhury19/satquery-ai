@@ -992,7 +992,8 @@ function updateMapOverlay(url, boundsWgs84) {
   if (boundsWgs84 && boundsWgs84.length === 2) {
     // [[south, west], [north, east]]
     currentImageOverlay = L.imageOverlay(url, boundsWgs84, { opacity: opacity, interactive: true }).addTo(map);
-    map.fitBounds(boundsWgs84, { padding: [30, 30] });
+    map.invalidateSize();
+    map.fitBounds(boundsWgs84, { padding: [20, 20], maxZoom: 16 });
   } else {
     const center = map.getCenter();
     const bounds = [[center.lat - 0.02, center.lng - 0.02], [center.lat + 0.02, center.lng + 0.02]];
@@ -1248,12 +1249,18 @@ async function loadDemo(sampleKey) {
 
     if (j.primary.metadata.centroid_wgs84) {
       $('hudCentroid').textContent = `${j.primary.metadata.centroid_wgs84.lat}° N, ${j.primary.metadata.centroid_wgs84.lon}° E`;
-      map.setView([j.primary.metadata.centroid_wgs84.lat, j.primary.metadata.centroid_wgs84.lon], 14);
     }
 
     $('viewerImage').src = j.primary.preview_url;
     updateMapOverlay(j.primary.preview_url, j.primary.metadata.bounds_wgs84);
     setActiveLayerTab('showPrimary', 'Primary Image');
+
+    if (j.primary.metadata.bounds_wgs84) {
+      map.invalidateSize();
+      map.fitBounds(j.primary.metadata.bounds_wgs84, { padding: [20, 20], maxZoom: 16 });
+    } else if (j.primary.metadata.centroid_wgs84) {
+      map.setView([j.primary.metadata.centroid_wgs84.lat, j.primary.metadata.centroid_wgs84.lon], 12);
+    }
 
     if (j.secondary) {
       state.secondary = j.secondary;

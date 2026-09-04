@@ -629,14 +629,29 @@
     .file-val { font-family: var(--font-mono); font-size: 10.5px; color: var(--accent); }
 
     @media (max-width: 1120px) {
-      .workspace { grid-template-columns: 1fr; padding: 12px; }
-      .viewport-canvas { height: 460px; }
-      .sidebar { min-height: 560px; }
+      .workspace { grid-template-columns: 1fr; padding: 10px; gap: 12px; }
+      .viewport-canvas { height: 480px; min-height: 440px; }
+      .sidebar { min-height: 540px; }
     }
     @media (max-width: 640px) {
+      header { padding: 10px 12px; flex-wrap: wrap; gap: 8px; }
+      .brand-text h1 { font-size: 16px; }
+      .brand-text p { display: none; }
+      .top-controls { width: 100%; justify-content: flex-end; gap: 6px; }
       .top-controls .model-badge { display: none; }
-      .viewport-canvas { height: 380px; }
-      .upload-bar { flex-direction: column; }
+      .top-controls .btn { padding: 5px 8px; font-size: 11px; }
+      .viewport-canvas { height: 440px; min-height: 400px; }
+      .viewport-nav { padding: 6px 8px; flex-wrap: wrap; gap: 6px; }
+      .view-mode-tabs { width: 100%; justify-content: space-between; }
+      .view-tab { flex: 1; text-align: center; font-size: 11px; padding: 4px 6px; }
+      .layer-selector { width: 100%; justify-content: space-between; flex-wrap: wrap; gap: 4px; }
+      .layer-btn { padding: 4px 7px; font-size: 10.5px; }
+      .opacity-slider-wrap { font-size: 10px; }
+      .hud-bar { padding: 4px 8px; font-size: 9.5px; gap: 6px; flex-wrap: wrap; }
+      .upload-bar { flex-direction: column; padding: 6px 10px; }
+      .gis-scene-card { top: 8px; left: 8px; right: 8px; max-width: calc(100% - 16px); padding: 6px 10px; }
+      .gis-scene-title { font-size: 12px; }
+      .gis-scene-sub { font-size: 10px; }
     }
   </style>
 </head>

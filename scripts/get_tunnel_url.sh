@@ -12,6 +12,12 @@ if [ -f "$ENV_FILE" ]; then
     set +a
 fi
 
+# 0. If permanent Zero Trust Tunnel token is configured
+if [ -n "$CLOUDFLARE_TUNNEL_TOKEN" ]; then
+    echo "https://satquery.tech"
+    exit 0
+fi
+
 # 1. Check cached active_url.txt
 if [ -f "$ACTIVE_FILE" ]; then
     URL=$(cat "$ACTIVE_FILE" | tr -d ' \r\n')

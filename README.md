@@ -10,7 +10,7 @@
 
 > 🛰️ **Try SatQuery AI Live (Permanent 24/7 GPU Accelerated Production Server)**:  
 > 👉 **[https://satquery.tech](https://satquery.tech)**  
-> *(Includes 1-click interactive demo presets for Sentinel-2, Kolkata Urban, Cartosat+RISAT, and Wildfire Change Analysis)*
+> *(Includes 1-click interactive demo presets for Sentinel-2, Kolkata Urban, Cartosat+RISAT, and Antelope Island Great Salt Lake Bi-temporal Change)*
 
 **SatQuery AI** is an agentic, query-driven vision-language platform designed for advanced Earth Observation (EO) and remote-sensing image understanding. It seamlessly orchestrates a domain-adapted vision-language model (`GeoRSCLIP` + `RSVQA` adapter) alongside modular geospatial spectral and radar engines to execute complex analytical workflows across single optical/SAR images, bi-temporal change pairs, and co-registered cross-modal optical–SAR datasets.
 

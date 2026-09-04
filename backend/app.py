@@ -1441,7 +1441,7 @@ def analyze_change(
     # Check for dedicated wildfire burn scar detection
     burn_mask, burn_pct, burn_ha = detect_burn_scar(data1, data2)
     
-    if is_fire_query or burn_pct > 8.0:
+    if is_fire_query:
         evidence_burn = spatial_evidence(burn_mask, data2)
         evidence_burn["label"] = f"🔥 Wildfire Burn Scar Perimeter (Camp Fire): {burn_ha:,.0f} ha"
         overlay = make_overlay(
@@ -3149,7 +3149,7 @@ def load_demo_sample(req: LoadDemoRequest):
         "bitemporal": {
             "primary": BASE_DIR / "demo_data/cdvqa/cdvqa_time1.tif",
             "secondary": BASE_DIR / "demo_data/cdvqa/cdvqa_time2.tif",
-            "title": "California Wildfire Burn Scar (Real Sentinel-2 Multi-Date: Oct 2018 vs Nov 2018)",
+            "title": "Antelope Island & Great Salt Lake (Real Sentinel-2 Multi-Date: Lake Water Inundation & Shoreline Change)",
         },
         "real_sf": {
             "primary": BASE_DIR / "demo_data/real_world_satellite/real_san_francisco_optical.tif",

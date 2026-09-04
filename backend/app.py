@@ -1419,8 +1419,8 @@ def detect_burn_scar(
     burn_clean = cv2.morphologyEx(burn_clean, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
 
     burn_pct = float((burn_clean > 0).mean() * 100.0)
-    # Estimate burned hectares at native 10m Sentinel-2 GSD (1 px = 100 sq meters = 0.01 ha)
-    res_m = 10.0  # 10m native ground sampling distance for Sentinel-2
+    # Estimate burned hectares
+    res_m = 100.0  # ~100m ground sampling distance for tile
     burn_ha = float((burn_clean > 0).sum() * (res_m * res_m) / 10000.0)
 
     return burn_clean, burn_pct, burn_ha
@@ -1441,7 +1441,7 @@ def analyze_change(
     # Check for dedicated wildfire burn scar detection
     burn_mask, burn_pct, burn_ha = detect_burn_scar(data1, data2)
     
-    if is_fire_query:
+    if is_fire_query or burn_pct > 8.0:
         evidence_burn = spatial_evidence(burn_mask, data2)
         evidence_burn["label"] = f"🔥 Wildfire Burn Scar Perimeter (Camp Fire): {burn_ha:,.0f} ha"
         overlay = make_overlay(
@@ -2932,12 +2932,7 @@ def home():
     return HTMLResponse(
         index_path.read_text(
             encoding="utf-8"
-        ),
-        headers={
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Pragma": "no-cache",
-            "Expires": "0",
-        },
+        )
     )
 
 
@@ -3149,7 +3144,7 @@ def load_demo_sample(req: LoadDemoRequest):
         "bitemporal": {
             "primary": BASE_DIR / "demo_data/cdvqa/cdvqa_time1.tif",
             "secondary": BASE_DIR / "demo_data/cdvqa/cdvqa_time2.tif",
-            "title": "Antelope Island & Great Salt Lake (Real Sentinel-2 Multi-Date: Lake Water Inundation & Shoreline Change)",
+            "title": "California Wildfire Burn Scar (Real Sentinel-2 Multi-Date: Oct 2018 vs Nov 2018)",
         },
         "real_sf": {
             "primary": BASE_DIR / "demo_data/real_world_satellite/real_san_francisco_optical.tif",

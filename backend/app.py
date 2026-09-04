@@ -2932,8 +2932,24 @@ def home():
     return HTMLResponse(
         index_path.read_text(
             encoding="utf-8"
-        )
+        ),
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
     )
+
+
+@app.get("/og_preview.png")
+@app.get("/og-image.png")
+def get_og_preview():
+    p = FRONTEND_DIR / "og_preview.png"
+    if not p.exists():
+        p = GENERATED_DIR / "og_preview.png"
+    if p.exists():
+        return FileResponse(p, media_type="image/png")
+    raise HTTPException(status_code=404, detail="OG Image not found.")
 
 
 @app.get(

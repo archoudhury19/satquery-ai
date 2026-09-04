@@ -972,12 +972,18 @@ function renderGeoJsonEvidence(evidence) {
     }
   }).addTo(map);
   
-  try {
-    const b = currentGeoJsonLayer.getBounds();
-    if (b.isValid()) {
-      map.fitBounds(b, { padding: [40, 40] });
-    }
-  } catch(e) {}
+  // Keep map framed on the full raster scene footprint for 1:1 alignment with Pixel view
+  if (state.primary?.metadata?.bounds_wgs84) {
+    map.invalidateSize();
+    map.fitBounds(state.primary.metadata.bounds_wgs84, { padding: [20, 20], maxZoom: 16 });
+  } else {
+    try {
+      const b = currentGeoJsonLayer.getBounds();
+      if (b.isValid()) {
+        map.fitBounds(b, { padding: [30, 30] });
+      }
+    } catch(e) {}
+  }
 }
 
 function updateMapOverlay(url, boundsWgs84) {
@@ -1015,6 +1021,9 @@ $('btnGisMode').onclick = () => {
   $('gisMap').style.display = 'block';
   $('pixelViewer').style.display = 'none';
   map.invalidateSize();
+  if (state.primary?.metadata?.bounds_wgs84) {
+    map.fitBounds(state.primary.metadata.bounds_wgs84, { padding: [20, 20], maxZoom: 16 });
+  }
 };
 
 $('btnPixelMode').onclick = () => {

@@ -1419,8 +1419,8 @@ def detect_burn_scar(
     burn_clean = cv2.morphologyEx(burn_clean, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
 
     burn_pct = float((burn_clean > 0).mean() * 100.0)
-    # Estimate burned hectares
-    res_m = 100.0  # ~100m ground sampling distance for tile
+    # Estimate burned hectares at native 10m Sentinel-2 GSD (1 px = 100 sq meters = 0.01 ha)
+    res_m = 10.0  # 10m native ground sampling distance for Sentinel-2
     burn_ha = float((burn_clean > 0).sum() * (res_m * res_m) / 10000.0)
 
     return burn_clean, burn_pct, burn_ha

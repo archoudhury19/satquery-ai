@@ -32,14 +32,21 @@ generated/*
 *.ckpt
 *.safetensors
 
-# Secrets
+# Secrets & Certificates
 .env
 .env.*
+*.pem
+*.key
+*.cert
+.cloudflared/
 
-# VS Code / OS
+# VS Code / OS / Testing
 .vscode/
+.idea/
 .DS_Store
 Thumbs.db
+.pytest_cache/
+.coverage
 
 # Logs
 logs/

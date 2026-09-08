@@ -1,112 +1,112 @@
 [
   {
     "sample_key": "cdvqa-test-00000000",
-    "image_t1": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000000.0.png",
-    "image_t2": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000000.1.png",
+    "image_t1": "data/external_datasets/cdvqa/images/cdvqa-test-00000000.0.png",
+    "image_t2": "data/external_datasets/cdvqa/images/cdvqa-test-00000000.1.png",
     "question": "Did the areas of non-vegetated ground surface change?",
     "answer": "yes",
     "question_type": "change_or_not"
   },
   {
     "sample_key": "cdvqa-test-00000001",
-    "image_t1": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000001.0.png",
-    "image_t2": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000001.1.png",
+    "image_t1": "data/external_datasets/cdvqa/images/cdvqa-test-00000001.0.png",
+    "image_t2": "data/external_datasets/cdvqa/images/cdvqa-test-00000001.1.png",
     "question": "Did the regions of trees change?",
     "answer": "no",
     "question_type": "change_or_not"
   },
   {
     "sample_key": "cdvqa-test-00000002",
-    "image_t1": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000002.0.png",
-    "image_t2": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000002.1.png",
+    "image_t1": "data/external_datasets/cdvqa/images/cdvqa-test-00000002.0.png",
+    "image_t2": "data/external_datasets/cdvqa/images/cdvqa-test-00000002.1.png",
     "question": "Have the areas of low vegetation changed?",
     "answer": "no",
     "question_type": "change_or_not"
   },
   {
     "sample_key": "cdvqa-test-00000003",
-    "image_t1": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000003.0.png",
-    "image_t2": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000003.1.png",
+    "image_t1": "data/external_datasets/cdvqa/images/cdvqa-test-00000003.0.png",
+    "image_t2": "data/external_datasets/cdvqa/images/cdvqa-test-00000003.1.png",
     "question": "Have the regions of water changed?",
     "answer": "no",
     "question_type": "change_or_not"
   },
   {
     "sample_key": "cdvqa-test-00000004",
-    "image_t1": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000004.0.png",
-    "image_t2": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000004.1.png",
+    "image_t1": "data/external_datasets/cdvqa/images/cdvqa-test-00000004.0.png",
+    "image_t2": "data/external_datasets/cdvqa/images/cdvqa-test-00000004.1.png",
     "question": "Have the regions of playgrounds changed?",
     "answer": "no",
     "question_type": "change_or_not"
   },
   {
     "sample_key": "cdvqa-test-00000005",
-    "image_t1": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000005.0.png",
-    "image_t2": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000005.1.png",
+    "image_t1": "data/external_datasets/cdvqa/images/cdvqa-test-00000005.0.png",
+    "image_t2": "data/external_datasets/cdvqa/images/cdvqa-test-00000005.1.png",
     "question": "Did the regions of non-vegetated ground surface change in the pre-event image?",
     "answer": "yes",
     "question_type": "change_or_not"
   },
   {
     "sample_key": "cdvqa-test-00000006",
-    "image_t1": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000006.0.png",
-    "image_t2": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000006.1.png",
+    "image_t1": "data/external_datasets/cdvqa/images/cdvqa-test-00000006.0.png",
+    "image_t2": "data/external_datasets/cdvqa/images/cdvqa-test-00000006.1.png",
     "question": "Did the areas of trees change in the pre-change image?",
     "answer": "no",
     "question_type": "change_or_not"
   },
   {
     "sample_key": "cdvqa-test-00000007",
-    "image_t1": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000007.0.png",
-    "image_t2": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000007.1.png",
+    "image_t1": "data/external_datasets/cdvqa/images/cdvqa-test-00000007.0.png",
+    "image_t2": "data/external_datasets/cdvqa/images/cdvqa-test-00000007.1.png",
     "question": "Have the areas of low vegetation changed in the first image?",
     "answer": "no",
     "question_type": "change_or_not"
   },
   {
     "sample_key": "cdvqa-test-00000008",
-    "image_t1": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000008.0.png",
-    "image_t2": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000008.1.png",
+    "image_t1": "data/external_datasets/cdvqa/images/cdvqa-test-00000008.0.png",
+    "image_t2": "data/external_datasets/cdvqa/images/cdvqa-test-00000008.1.png",
     "question": "Did the areas of water change in the pre-change image?",
     "answer": "no",
     "question_type": "change_or_not"
   },
   {
     "sample_key": "cdvqa-test-00000009",
-    "image_t1": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000009.0.png",
-    "image_t2": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000009.1.png",
+    "image_t1": "data/external_datasets/cdvqa/images/cdvqa-test-00000009.0.png",
+    "image_t2": "data/external_datasets/cdvqa/images/cdvqa-test-00000009.1.png",
     "question": "Have the regions of buildings changed in the first image?",
     "answer": "yes",
     "question_type": "change_or_not"
   },
   {
     "sample_key": "cdvqa-test-00000010",
-    "image_t1": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000010.0.png",
-    "image_t2": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000010.1.png",
+    "image_t1": "data/external_datasets/cdvqa/images/cdvqa-test-00000010.0.png",
+    "image_t2": "data/external_datasets/cdvqa/images/cdvqa-test-00000010.1.png",
     "question": "Have the areas of non-vegetated ground surface changed in the second image?",
     "answer": "yes",
     "question_type": "change_or_not"
   },
   {
     "sample_key": "cdvqa-test-00000011",
-    "image_t1": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000011.0.png",
-    "image_t2": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000011.1.png",
+    "image_t1": "data/external_datasets/cdvqa/images/cdvqa-test-00000011.0.png",
+    "image_t2": "data/external_datasets/cdvqa/images/cdvqa-test-00000011.1.png",
     "question": "Have the regions of trees changed in the second image?",
     "answer": "no",
     "question_type": "change_or_not"
   },
   {
     "sample_key": "cdvqa-test-00000012",
-    "image_t1": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000012.0.png",
-    "image_t2": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000012.1.png",
+    "image_t1": "data/external_datasets/cdvqa/images/cdvqa-test-00000012.0.png",
+    "image_t2": "data/external_datasets/cdvqa/images/cdvqa-test-00000012.1.png",
     "question": "Did the areas of low vegetation change in the post-change image?",
     "answer": "no",
     "question_type": "change_or_not"
   },
   {
     "sample_key": "cdvqa-test-00000013",
-    "image_t1": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000013.0.png",
-    "image_t2": "data\\external_datasets\\cdvqa\\images\\cdvqa-test-00000013.1.png",
+    "image_t1": "data/external_datasets/cdvqa/images/cdvqa-test-00000013.0.png",
+    "image_t2": "data/external_datasets/cdvqa/images/cdvqa-test-00000013.1.png",
     "question": "Did the regions of water change in the post-event image?",
     "answer": "no",
     "question_type": "change_or_not"

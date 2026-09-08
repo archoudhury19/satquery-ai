@@ -2,7 +2,7 @@
   {
     "sample_id": 0,
     "image_name": "P2655_0055.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\P2655_0055.png",
+    "image_path": "data/external_datasets/vrsbench/images/P2655_0055.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The basketball court is located towards the bottom left of the image, surrounded by green areas and brown plots that indicate agricultural activity.",
     "category": "basketball-court",
     "ground_truth_bbox": [
@@ -10,12 +10,13 @@
       358.4,
       133.12,
       609.28
-    ]
+    ],
+    "reference_caption": "The basketball court is located towards the bottom left of the image, surrounded by green areas and brown plots that indicate agricultural activity."
   },
   {
     "sample_id": 1,
     "image_name": "05529_0000.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\05529_0000.png",
+    "image_path": "data/external_datasets/vrsbench/images/05529_0000.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The overpass is on the bottom-right.",
     "category": "overpass",
     "ground_truth_bbox": [
@@ -23,12 +24,13 @@
       343.04,
       573.44,
       465.92
-    ]
+    ],
+    "reference_caption": "The overpass is on the bottom-right."
   },
   {
     "sample_id": 2,
     "image_name": "05593_0000.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\05593_0000.png",
+    "image_path": "data/external_datasets/vrsbench/images/05593_0000.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The train station in the bottom part of the frame.",
     "category": "trainstation",
     "ground_truth_bbox": [
@@ -36,12 +38,13 @@
       414.72,
       527.36,
       491.52
-    ]
+    ],
+    "reference_caption": "The train station in the bottom part of the frame."
   },
   {
     "sample_id": 3,
     "image_name": "03987_0000.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\03987_0000.png",
+    "image_path": "data/external_datasets/vrsbench/images/03987_0000.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The expressway toll station can be clearly identified at the bottom of the image by its canopy and lane structure.",
     "category": "expressway-toll-station",
     "ground_truth_bbox": [
@@ -49,12 +52,13 @@
       373.76,
       373.76,
       573.44
-    ]
+    ],
+    "reference_caption": "The expressway toll station can be clearly identified at the bottom of the image by its canopy and lane structure."
   },
   {
     "sample_id": 4,
     "image_name": "P2692_0020.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\P2692_0020.png",
+    "image_path": "data/external_datasets/vrsbench/images/P2692_0020.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The soccer ball field is distinguished by its rectangular configuration and white boundary lines.",
     "category": "soccer-ball-field",
     "ground_truth_bbox": [
@@ -62,12 +66,13 @@
       281.6,
       138.24,
       384.0
-    ]
+    ],
+    "reference_caption": "The soccer ball field is distinguished by its rectangular configuration and white boundary lines."
   },
   {
     "sample_id": 5,
     "image_name": "P1228_0029.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\P1228_0029.png",
+    "image_path": "data/external_datasets/vrsbench/images/P1228_0029.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The container crane located in the middle-left of the image.",
     "category": "container-crane",
     "ground_truth_bbox": [
@@ -75,12 +80,13 @@
       235.52,
       71.68,
       271.36
-    ]
+    ],
+    "reference_caption": "The container crane located in the middle-left of the image."
   },
   {
     "sample_id": 6,
     "image_name": "03092_0000.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\03092_0000.png",
+    "image_path": "data/external_datasets/vrsbench/images/03092_0000.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The topmost section of the airport, which spans a wide area from left to right and is surrounded by greenery, features multiple runways.",
     "category": "airport",
     "ground_truth_bbox": [
@@ -88,12 +94,13 @@
       87.04,
       404.48,
       389.12
-    ]
+    ],
+    "reference_caption": "The topmost section of the airport, which spans a wide area from left to right and is surrounded by greenery, features multiple runways."
   },
   {
     "sample_id": 7,
     "image_name": "P2554_0015.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\P2554_0015.png",
+    "image_path": "data/external_datasets/vrsbench/images/P2554_0015.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The plane seen at the top of the cluster of planes.",
     "category": "airplane",
     "ground_truth_bbox": [
@@ -101,12 +108,13 @@
       112.64,
       235.52,
       194.56
-    ]
+    ],
+    "reference_caption": "The plane seen at the top of the cluster of planes."
   },
   {
     "sample_id": 8,
     "image_name": "P1393_0054.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\P1393_0054.png",
+    "image_path": "data/external_datasets/vrsbench/images/P1393_0054.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The helicopter that is located towards the center-left of the image, distinguished by being the furthest from the right edge compared to the others.",
     "category": "helicopter",
     "ground_truth_bbox": [
@@ -114,12 +122,13 @@
       240.64,
       235.52,
       404.48
-    ]
+    ],
+    "reference_caption": "The helicopter that is located towards the center-left of the image, distinguished by being the furthest from the right edge compared to the others."
   },
   {
     "sample_id": 9,
     "image_name": "P3536_2836.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\P3536_2836.png",
+    "image_path": "data/external_datasets/vrsbench/images/P3536_2836.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The large ship is located towards the middle-right of the image.",
     "category": "ship",
     "ground_truth_bbox": [
@@ -127,12 +136,13 @@
       220.16,
       424.96,
       302.08
-    ]
+    ],
+    "reference_caption": "The large ship is located towards the middle-right of the image."
   },
   {
     "sample_id": 10,
     "image_name": "P9847_1557.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\P9847_1557.png",
+    "image_path": "data/external_datasets/vrsbench/images/P9847_1557.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The roundabout located centrally on the right side of the image.",
     "category": "roundabout",
     "ground_truth_bbox": [
@@ -140,12 +150,13 @@
       332.8,
       389.12,
       363.52
-    ]
+    ],
+    "reference_caption": "The roundabout located centrally on the right side of the image."
   },
   {
     "sample_id": 11,
     "image_name": "01901_0000.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\01901_0000.png",
+    "image_path": "data/external_datasets/vrsbench/images/01901_0000.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The golf field in the image is situated on the right side, occupying a large green area with clear boundaries.",
     "category": "golffield",
     "ground_truth_bbox": [
@@ -153,12 +164,13 @@
       61.44,
       512.0,
       199.68
-    ]
+    ],
+    "reference_caption": "The golf field in the image is situated on the right side, occupying a large green area with clear boundaries."
   },
   {
     "sample_id": 12,
     "image_name": "P1455_0032.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\P1455_0032.png",
+    "image_path": "data/external_datasets/vrsbench/images/P1455_0032.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The swimming pool closer to the top edge of the image exhibits a smaller size relative to the other pool.",
     "category": "swimming-pool",
     "ground_truth_bbox": [
@@ -166,12 +178,13 @@
       0.0,
       276.48,
       30.72
-    ]
+    ],
+    "reference_caption": "The swimming pool closer to the top edge of the image exhibits a smaller size relative to the other pool."
   },
   {
     "sample_id": 13,
     "image_name": "04645_0000.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\04645_0000.png",
+    "image_path": "data/external_datasets/vrsbench/images/04645_0000.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The windmill located in the bottom left area of the image.",
     "category": "windmill",
     "ground_truth_bbox": [
@@ -179,12 +192,13 @@
       368.64,
       87.04,
       409.6
-    ]
+    ],
+    "reference_caption": "The windmill located in the bottom left area of the image."
   },
   {
     "sample_id": 14,
     "image_name": "01708_0000.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\01708_0000.png",
+    "image_path": "data/external_datasets/vrsbench/images/01708_0000.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The dam is located at the transition between the green land and the water, on the right half of the image.",
     "category": "dam",
     "ground_truth_bbox": [
@@ -192,12 +206,13 @@
       327.68,
       573.44,
       522.24
-    ]
+    ],
+    "reference_caption": "The dam is located at the transition between the green land and the water, on the right half of the image."
   },
   {
     "sample_id": 15,
     "image_name": "P6689_0007.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\P6689_0007.png",
+    "image_path": "data/external_datasets/vrsbench/images/P6689_0007.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The tennis court is visible as a rectangular area with a distinctive gray hue located at the top-middle portion of the image.",
     "category": "tennis-court",
     "ground_truth_bbox": [
@@ -205,12 +220,13 @@
       10.24,
       332.8,
       51.2
-    ]
+    ],
+    "reference_caption": "The tennis court is visible as a rectangular area with a distinctive gray hue located at the top-middle portion of the image."
   },
   {
     "sample_id": 16,
     "image_name": "03871_0000.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\03871_0000.png",
+    "image_path": "data/external_datasets/vrsbench/images/03871_0000.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The chimney located on the right side of the image is emitting smoke.",
     "category": "chimney",
     "ground_truth_bbox": [
@@ -218,12 +234,13 @@
       138.24,
       619.52,
       409.6
-    ]
+    ],
+    "reference_caption": "The chimney located on the right side of the image is emitting smoke."
   },
   {
     "sample_id": 17,
     "image_name": "P2751_0031.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\P2751_0031.png",
+    "image_path": "data/external_datasets/vrsbench/images/P2751_0031.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The storage tank located at the middle-left edge of the image, sitting alone above the central cluster, is easily identifiable.",
     "category": "storage-tank",
     "ground_truth_bbox": [
@@ -231,12 +248,13 @@
       168.96,
       40.96,
       220.16
-    ]
+    ],
+    "reference_caption": "The storage tank located at the middle-left edge of the image, sitting alone above the central cluster, is easily identifiable."
   },
   {
     "sample_id": 18,
     "image_name": "P7860_0003.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\P7860_0003.png",
+    "image_path": "data/external_datasets/vrsbench/images/P7860_0003.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The small ground-track-field, positioned at the bottom-middle of the image.",
     "category": "ground-track-field",
     "ground_truth_bbox": [
@@ -244,12 +262,13 @@
       491.52,
       215.04,
       506.88
-    ]
+    ],
+    "reference_caption": "The small ground-track-field, positioned at the bottom-middle of the image."
   },
   {
     "sample_id": 19,
     "image_name": "04400_0000.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\04400_0000.png",
+    "image_path": "data/external_datasets/vrsbench/images/04400_0000.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The U-shaped stadium with fort-like stands occupying the majority of the image is unique in structure.",
     "category": "stadium",
     "ground_truth_bbox": [
@@ -257,12 +276,13 @@
       5.12,
       496.64,
       757.76
-    ]
+    ],
+    "reference_caption": "The U-shaped stadium with fort-like stands occupying the majority of the image is unique in structure."
   },
   {
     "sample_id": 20,
     "image_name": "P6637_2608.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\P6637_2608.png",
+    "image_path": "data/external_datasets/vrsbench/images/P6637_2608.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The baseball diamond situated in the center of the image.",
     "category": "baseball-diamond",
     "ground_truth_bbox": [
@@ -270,12 +290,13 @@
       225.28,
       230.4,
       281.6
-    ]
+    ],
+    "reference_caption": "The baseball diamond situated in the center of the image."
   },
   {
     "sample_id": 21,
     "image_name": "P3536_0772.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\P3536_0772.png",
+    "image_path": "data/external_datasets/vrsbench/images/P3536_0772.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: Another helipad visible at the bottom right edge of the image.",
     "category": "helipad",
     "ground_truth_bbox": [
@@ -283,12 +304,13 @@
       491.52,
       378.88,
       512.0
-    ]
+    ],
+    "reference_caption": "Another helipad visible at the bottom right edge of the image."
   },
   {
     "sample_id": 22,
     "image_name": "04976_0000.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\04976_0000.png",
+    "image_path": "data/external_datasets/vrsbench/images/04976_0000.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The expressway-service-area occupies a substantial area in the image, with a rectangular outline that stretches from near the left edge to the right.",
     "category": "expressway-service-area",
     "ground_truth_bbox": [
@@ -296,12 +318,13 @@
       225.28,
       368.64,
       629.76
-    ]
+    ],
+    "reference_caption": "The expressway-service-area occupies a substantial area in the image, with a rectangular outline that stretches from near the left edge to the right."
   },
   {
     "sample_id": 23,
     "image_name": "P1357_0010.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\P1357_0010.png",
+    "image_path": "data/external_datasets/vrsbench/images/P1357_0010.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: Located at the bottom middle of the image is a bridge spanning a narrow section of water.",
     "category": "bridge",
     "ground_truth_bbox": [
@@ -309,12 +332,13 @@
       440.32,
       307.2,
       450.56
-    ]
+    ],
+    "reference_caption": "Located at the bottom middle of the image is a bridge spanning a narrow section of water."
   },
   {
     "sample_id": 24,
     "image_name": "P1455_0093.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\P1455_0093.png",
+    "image_path": "data/external_datasets/vrsbench/images/P1455_0093.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The small vehicle is positioned towards the bottom-middle part of the image, adjacent to the houses.",
     "category": "vehicle",
     "ground_truth_bbox": [
@@ -322,12 +346,13 @@
       424.96,
       312.32,
       440.32
-    ]
+    ],
+    "reference_caption": "The small vehicle is positioned towards the bottom-middle part of the image, adjacent to the houses."
   },
   {
     "sample_id": 25,
     "image_name": "01400_0000.png",
-    "image_path": "data\\external_datasets\\vrsbench\\images\\01400_0000.png",
+    "image_path": "data/external_datasets/vrsbench/images/01400_0000.png",
     "prompt": "Please provide the bounding box coordinate of the region this sentence describes: The small harbor is on the middle-left side of the image.",
     "category": "harbor",
     "ground_truth_bbox": [
@@ -335,6 +360,7 @@
       230.4,
       107.52,
       271.36
-    ]
+    ],
+    "reference_caption": "The small harbor is on the middle-left side of the image."
   }
 ]

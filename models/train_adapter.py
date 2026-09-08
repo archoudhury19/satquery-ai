@@ -96,11 +96,11 @@ def build_training_samples(vlm: Any, demo_dir: Path) -> List[Tuple[str, str, str
         except Exception as exc:
             print(f"[Train] Note reading BigEarthNet annotations: {exc}")
 
-    # 5. Ingest authentic RSVQA test samples
-    rsvqa_eval_file = BASE_DIR / "data" / "external_datasets" / "rsvqa" / "rsvqa_official_eval.json"
-    if rsvqa_eval_file.exists():
+    # 5. Ingest authentic RSVQA training samples (Strictly scene-disjoint from evaluation benchmark)
+    rsvqa_train_file = BASE_DIR / "data" / "external_datasets" / "rsvqa" / "rsvqa_train.json"
+    if rsvqa_train_file.exists():
         try:
-            with open(rsvqa_eval_file, "r", encoding="utf-8") as f:
+            with open(rsvqa_train_file, "r", encoding="utf-8") as f:
                 rsvqa_items = json.load(f)
                 rsvqa_loaded = 0
                 for item in rsvqa_items:
@@ -108,9 +108,9 @@ def build_training_samples(vlm: Any, demo_dir: Path) -> List[Tuple[str, str, str
                     if img_rel and (BASE_DIR / img_rel).exists():
                         samples.append((str(BASE_DIR / img_rel), item["question"], item["answer"].strip().lower()))
                         rsvqa_loaded += 1
-            print(f"[Train] Ingested {rsvqa_loaded} authentic RSVQA Sentinel-2 samples.")
+            print(f"[Train] Ingested {rsvqa_loaded} authentic RSVQA Sentinel-2 training samples (scene-disjoint).")
         except Exception as exc:
-            print(f"[Train] Note reading RSVQA official eval: {exc}")
+            print(f"[Train] Note reading RSVQA train split: {exc}")
 
     # Only retain samples whose images physically exist on disk
     valid_samples = [s for s in samples if s[0] and Path(s[0]).exists()]
@@ -187,16 +187,24 @@ def train_adapter(
         labels=torch.tensor(label_ids, dtype=torch.long),
     )
 
-    # Disjoint 80/20 train/validation split
-    total_len = len(full_dataset)
-    val_len = max(1, int(0.20 * total_len))
-    train_len = total_len - val_len
+    # Scene-disjoint train / validation split (guaranteeing no image overlap between train and val)
+    from collections import defaultdict
+    img_to_indices: Dict[str, List[int]] = defaultdict(list)
+    for idx, (img_p, _, _) in enumerate(raw_samples):
+        img_to_indices[img_p].append(idx)
 
-    train_dataset, val_dataset = torch.utils.data.random_split(
-        full_dataset,
-        [train_len, val_len],
-        generator=torch.Generator().manual_seed(42),
-    )
+    unique_imgs = sorted(list(img_to_indices.keys()))
+    val_img_count = max(1, int(0.20 * len(unique_imgs)))
+    train_imgs = set(unique_imgs[:-val_img_count])
+    val_imgs = set(unique_imgs[-val_img_count:])
+
+    train_indices = [idx for img in train_imgs for idx in img_to_indices[img]]
+    val_indices = [idx for img in val_imgs for idx in img_to_indices[img]]
+
+    train_dataset = torch.utils.data.Subset(full_dataset, train_indices)
+    val_dataset = torch.utils.data.Subset(full_dataset, val_indices)
+    train_len = len(train_indices)
+    val_len = len(val_indices)
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
@@ -285,8 +293,9 @@ def train_adapter(
     if config_path.exists():
         with open(config_path, "r", encoding="utf-8") as f:
             cfg = json.load(f)
+        cfg.pop("internal_validation_samples", None)
         cfg.update({
-            "dataset": "BigEarthNet.txt (arXiv:2603.29630) + RSVQAxBEN",
+            "dataset": "BigEarthNet.txt (arXiv:2603.29630) + RSVQA (Scene-Disjoint Train Split)",
             "adaptation_train_samples": train_len,
             "adaptation_val_samples": val_len,
             "training_epochs": epochs,
@@ -300,7 +309,7 @@ def train_adapter(
         })
         with open(config_path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
-        print(f"[Train] Updated {config_path} with BigEarthNet training metrics.")
+        print(f"[Train] Updated {config_path} with scene-disjoint training metrics.")
 
 
 if __name__ == "__main__":

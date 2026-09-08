@@ -42,7 +42,7 @@ def understand_query(
 
     # 6. Dense Visual Grounding intent (imperative spatial localization of specific objects/features)
     grounding = (not captioning) and (not segmentation) and (not is_presence_vqa) and bool(re.search(
-        r"\b(highlight|locate|pinpoint|where\s+is|show\s+me\s+where|point\s+out|box\s+the|draw\s+a\s+box|delineate|find\s+the|isolate\s+the)\b",
+        r"\b(highlight|locate|pinpoint|where\s+is|show\s+me\s+where|point\s+out|box\s+the|draw\s+a\s+box|delineate|find\s+the|isolate\s+the|bounding\s+box|bbox|provide\s+(?:the\s+)?bounding\s+box|grounding|ground\s+the|detect\s+the|coordinates?\s+of|region\s+this\s+sentence\s+describes)\b",
         q
     ))
 

@@ -235,9 +235,13 @@ def compute_cdvqa_metrics(
     pred_answer: str,
     true_answer: str,
     true_direction: Optional[str] = None,
+    question_type: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Evaluate Change Detection Visual Question Answering with negation awareness.
+    Evaluate Change Detection Visual Question Answering with task-specific awareness:
+    - Binary change detection accuracy (change_or_not)
+    - Directional accuracy (increase / decrease / unchanged)
+    - Physical delta error and ROUGE-L lexical similarity
     """
     norm_p = normalize_text(pred_answer)
     norm_t = normalize_text(true_answer)
@@ -245,12 +249,24 @@ def compute_cdvqa_metrics(
     # Empty or whitespace-only predictions must receive 0.0 accuracy across the board
     if not norm_p:
         return {
+            "binary_accuracy": 0.0,
             "directional_accuracy": 0.0,
             "delta_percentage_error": None,
             "rouge_l": 0.0,
         }
 
-    # 1. Directional Classification Accuracy with negation awareness
+    # 1. Binary change_or_not Evaluation
+    binary_acc = 0.0
+    if norm_t in ["yes", "no"] or (question_type and "change" in question_type):
+        has_negation = bool(re.search(r"\b(?:no|not|neither|nor|never|unchanged|remained\s+unchanged|no\s+(?:significant\s+)?change|stable|constant|without\s+change)\b", norm_p))
+        has_change_evidence = bool(re.search(r"\b(?:yes|changed|change|increased|decreased|shifted|expansion|loss|growth|reduction|disturbance|spread|expanded)\b", norm_p))
+        
+        if norm_t == "yes":
+            binary_acc = 1.0 if (has_change_evidence and not has_negation) or norm_p.startswith("yes") else 0.0
+        elif norm_t == "no":
+            binary_acc = 1.0 if has_negation or norm_p.startswith("no") or not has_change_evidence else 0.0
+
+    # 2. Directional Classification Accuracy with negation awareness
     dir_acc = 0.0
     if true_direction:
         td = true_direction.lower()
@@ -288,6 +304,7 @@ def compute_cdvqa_metrics(
     rouge_l = compute_rouge_l(pred_answer, true_answer)
 
     return {
+        "binary_accuracy": binary_acc,
         "directional_accuracy": dir_acc,
         "delta_percentage_error": delta_err,
         "rouge_l": rouge_l,

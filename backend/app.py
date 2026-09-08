@@ -3198,17 +3198,22 @@ async def upload(
 
     # Enforce SIH Requirement 12: PNG/JPEG restricted to prescribed benchmark inputs
     if suffix in {".png", ".jpg", ".jpeg"}:
-        fn_lower = (file.filename or "").lower()
-        benchmark_tokens = [
-            "vrsbench", "rsvqa", "cdvqa", "bigearthnet", "dmarsili", "ljx620", "omlab", "rsvqa_lr", "cdvqa-test"
+        fn = Path(file.filename or "").name
+        benchmark_patterns = [
+            r"^P\d{4}_\d{4}\.png$",
+            r"^\d{5}_\d{4}\.png$",
+            r"^rsvqa_lr_\d{4}\.png$",
+            r"^cdvqa-test-\d{8}\.\d\.png$",
+            r"^vrsbench_sample_\d+\.(?:png|tif|tiff)$",
+            r"^cdvqa_time\d\.(?:png|tif|tiff)$",
         ]
-        is_benchmark_input = any(token in fn_lower for token in benchmark_tokens)
+        is_benchmark_input = any(re.match(p, fn, re.IGNORECASE) for p in benchmark_patterns)
         if not is_benchmark_input:
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "Non-georeferenced PNG/JPEG formats are strictly restricted to prescribed benchmark evaluation datasets "
-                    "(VRSBench, RSVQA, CDVQA, BigEarthNet). Operational remote sensing workflows require georeferenced GeoTIFF (.tif, .tiff) rasters."
+                    f"Non-georeferenced PNG/JPEG format '{fn}' is rejected. PNG/JPEG uploads are strictly restricted to "
+                    "prescribed benchmark evaluation datasets (VRSBench, RSVQA, CDVQA, BigEarthNet). Operational remote sensing workflows require georeferenced GeoTIFF (.tif, .tiff) rasters."
                 ),
             )
 
@@ -3761,19 +3766,19 @@ def _handle_rs_vqa(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
     secondary = ctx.get("secondary")
     feature = ctx["feature"]
     req = ctx["req"]
-    ctx["trace"].append(
-        {
-            "step": "RS-VQA",
-            "status": "ok",
-            "detail": "GeoRSCLIP + RSVQA Adapter selected (multi-image comparison active)" if secondary else "GeoRSCLIP + RSVQA Adapter selected.",
-        }
-    )
     if secondary:
         p_mod = infer_modality(primary["path"], primary["data"], primary.get("filename"))
         s_mod = infer_modality(secondary["path"], secondary["data"], secondary.get("filename"))
         is_optical_sar = ({p_mod, s_mod} == {"optical", "sar"})
         feat = feature if feature not in {"auto", "scene", "multimodal", None} else "water"
         if is_optical_sar:
+            ctx["trace"].append(
+                {
+                    "step": "Optical-SAR Fusion",
+                    "status": "ok",
+                    "detail": "Cross-modal Optical-SAR fusion specialist selected for multimodal question.",
+                }
+            )
             return analyze_cross_modal(
                 primary["path"],
                 primary["data"],
@@ -3782,6 +3787,13 @@ def _handle_rs_vqa(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
                 feature=feat,
             )
         else:
+            ctx["trace"].append(
+                {
+                    "step": "Change Engine",
+                    "status": "ok",
+                    "detail": "Bi-temporal change reasoning specialist selected for multi-image comparison.",
+                }
+            )
             return analyze_change(
                 primary["path"],
                 primary["data"],
@@ -3790,6 +3802,13 @@ def _handle_rs_vqa(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
                 feature=feat,
                 query=req.query,
             )
+    ctx["trace"].append(
+        {
+            "step": "RS-VQA",
+            "status": "ok",
+            "detail": "GeoRSCLIP + RSVQA Adapter selected.",
+        }
+    )
     return analyze_single(
         primary["path"],
         primary["data"],

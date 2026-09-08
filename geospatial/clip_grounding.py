@@ -70,12 +70,14 @@ def ground_with_clip(
 
     # Pre-process query text
     clean_query = query.strip()
+    target_phrase = clean_query.lower()
+    if ":" in target_phrase and any(w in target_phrase for w in ["sentence describes", "bounding box", "coordinate"]):
+        target_phrase = target_phrase.split(":", 1)[1].strip()
     prefixes = [
         "highlight the ", "highlight ", "locate the ", "locate ",
         "find the ", "find ", "detect the ", "detect ", "show the ", "show ",
-        "where is the ", "where are the "
+        "where is the ", "where are the ", "provide the bounding box of the ", "provide bounding box for "
     ]
-    target_phrase = clean_query.lower()
     for p in prefixes:
         if target_phrase.startswith(p):
             target_phrase = target_phrase[len(p):].rstrip(".")

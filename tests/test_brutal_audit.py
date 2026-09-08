@@ -625,12 +625,149 @@ try:
     test_assert("restricted to prescribed benchmark" in str(resp_bad.json().get("detail", "")).lower(),
                 "Rejection message states benchmark dataset restriction", str(resp_bad.json().get("detail")))
 
+    # Test arbitrary substring bypass file like 'rsvqa_photo.jpg' is rejected
+    dummy_rsvqa_fake = io.BytesIO(b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00`\x00`\x00\x00\xff\xdb\x00C\x00")
+    resp_fake_rsvqa = client.post("/api/upload", files={"file": ("rsvqa_photo.jpg", dummy_rsvqa_fake, "image/jpeg")})
+    test_assert(resp_fake_rsvqa.status_code == 400,
+                "Arbitrary file 'rsvqa_photo.jpg' rejected with HTTP 400", f"Status: {resp_fake_rsvqa.status_code}")
+
     dummy_sample = io.BytesIO(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89")
     resp_sample = client.post("/api/upload", files={"file": ("sample.png", dummy_sample, "image/png")})
     test_assert(resp_sample.status_code == 400,
                 "Generic file 'sample.png' rejected with HTTP 400", f"Status: {resp_sample.status_code}")
+
+    # Test legitimate VRSBench filename format is permitted past upload format guard
+    real_vrs_p = BASE_DIR / "data" / "external_datasets" / "vrsbench" / "images" / "P2655_0055.png"
+    if real_vrs_p.exists():
+        resp_vrs = client.post("/api/upload", files={"file": ("P2655_0055.png", real_vrs_p.read_bytes(), "image/png")})
+        test_assert(resp_vrs.status_code == 200,
+                    "Legitimate benchmark image 'P2655_0055.png' accepted by upload endpoint", f"Status: {resp_vrs.status_code}")
 except Exception as e:
     test_assert(False, "Tightened format restriction test", str(e))
+
+# ------------------------------------------------------------
+# TEST 21: RSVQA SCENE-DISJOINT TRAIN/TEST SPLIT (ZERO CONTAMINATION)
+# ------------------------------------------------------------
+print("\n--- TEST 21: RSVQA Scene-Disjoint Train/Test Split ---")
+try:
+    import json, hashlib
+    train_manifest_p = BASE_DIR / "data" / "external_datasets" / "rsvqa" / "rsvqa_train.json"
+    eval_manifest_p = BASE_DIR / "data" / "external_datasets" / "rsvqa" / "rsvqa_official_eval.json"
+
+    test_assert(train_manifest_p.exists(), "rsvqa_train.json exists on disk", str(train_manifest_p))
+    test_assert(eval_manifest_p.exists(), "rsvqa_official_eval.json exists on disk", str(eval_manifest_p))
+
+    train_data = json.load(open(train_manifest_p, encoding="utf-8"))
+    eval_data = json.load(open(eval_manifest_p, encoding="utf-8"))
+
+    train_hashes = set()
+    for item in train_data:
+        p = BASE_DIR / item["image_path"]
+        if p.exists():
+            train_hashes.add(hashlib.sha256(p.read_bytes()).hexdigest())
+
+    eval_hashes = set()
+    for item in eval_data:
+        p = BASE_DIR / item["image_path"]
+        if p.exists():
+            eval_hashes.add(hashlib.sha256(p.read_bytes()).hexdigest())
+
+    overlap = train_hashes & eval_hashes
+    test_assert(len(overlap) == 0,
+                f"Train and Evaluation splits have 0 overlapping scenes (clean test generalization)",
+                f"Overlap count: {len(overlap)}")
+    test_assert(len(train_hashes) >= 5, f"Training split contains multiple scenes ({len(train_hashes)} scenes)", f"Count: {len(train_hashes)}")
+    test_assert(len(eval_hashes) >= 3, f"Evaluation split contains multiple held-out scenes ({len(eval_hashes)} scenes)", f"Count: {len(eval_hashes)}")
+
+    # Verify config.json does not contain stale 400 validation samples
+    config_p = BASE_DIR / "models" / "checkpoints" / "satquery_rs_model" / "config.json"
+    cfg = json.load(open(config_p, encoding="utf-8"))
+    test_assert("internal_validation_samples" not in cfg,
+                "config.json does not contain stale 'internal_validation_samples' field", str(cfg.get("internal_validation_samples")))
+    test_assert("Scene-Disjoint" in cfg.get("dataset", ""),
+                "config.json documents scene-disjoint training provenance", cfg.get("dataset"))
+except Exception as e:
+    test_assert(False, "RSVQA scene-disjoint split test", str(e))
+
+# ------------------------------------------------------------
+# TEST 22: ALL VRSBENCH GROUNDING PROMPTS ROUTED TO GROUNDING
+# ------------------------------------------------------------
+print("\n--- TEST 22: VRSBench Grounding Prompt Routing & Captions ---")
+try:
+    from agent.planner import build_plan
+    vrs_p = BASE_DIR / "data" / "external_datasets" / "vrsbench" / "vrsbench_official_eval.json"
+    vrs_items = json.load(open(vrs_p, encoding="utf-8"))
+
+    tasks = [build_plan(item["prompt"], 1)["task"] for item in vrs_items]
+    all_grounding = all(t == "grounding" for t in tasks)
+    test_assert(all_grounding,
+                f"100% of VRSBench grounding prompts ({len(vrs_items)}/26) route to task='grounding'",
+                f"Tasks found: {set(tasks)}")
+
+    # Verify authentic reference captions present in manifest
+    has_refs = all("reference_caption" in item and len(item["reference_caption"]) > 10 for item in vrs_items)
+    test_assert(has_refs,
+                "All VRSBench records contain authentic reference captions for caption scoring",
+                f"Checked {len(vrs_items)} records")
+except Exception as e:
+    test_assert(False, "VRSBench grounding prompt routing test", str(e))
+
+# ------------------------------------------------------------
+# TEST 23: PAIRED VQA AUDITABLE EXECUTION TRACE LABELING
+# ------------------------------------------------------------
+print("\n--- TEST 23: Auditable Paired-VQA Execution Trace Labeling ---")
+try:
+    from backend.app import _handle_rs_vqa
+    from types import SimpleNamespace
+
+    # 1. Optical + SAR trace test
+    ctx_opt_sar = {
+        "primary": {"path": opt_p, "data": opt_d, "filename": opt_p.name},
+        "secondary": {"path": sar_p, "data": sar_d, "filename": sar_p.name},
+        "feature": "auto",
+        "req": SimpleNamespace(query="Are built-up areas distinguishable from water?"),
+        "trace": [],
+    }
+    _handle_rs_vqa(ctx_opt_sar)
+    trace_steps_fusion = [t.get("step") for t in ctx_opt_sar["trace"]]
+    test_assert("Optical-SAR Fusion" in trace_steps_fusion,
+                "Trace correctly records 'Optical-SAR Fusion' for optical-SAR input (not fake RS-VQA)",
+                f"Steps: {trace_steps_fusion}")
+
+    # 2. Bi-temporal change trace test
+    ctx_temporal = {
+        "primary": {"path": t1_p, "data": t1_d, "filename": t1_p.name},
+        "secondary": {"path": t2_p, "data": t2_d, "filename": t2_p.name},
+        "feature": "water",
+        "req": SimpleNamespace(query="Has water changed between these dates?"),
+        "trace": [],
+    }
+    _handle_rs_vqa(ctx_temporal)
+    trace_steps_change = [t.get("step") for t in ctx_temporal["trace"]]
+    test_assert("Change Engine" in trace_steps_change,
+                "Trace correctly records 'Change Engine' for temporal input (not fake RS-VQA)",
+                f"Steps: {trace_steps_change}")
+except Exception as e:
+    test_assert(False, "Paired-VQA trace labeling test", str(e))
+
+# ------------------------------------------------------------
+# TEST 24: POSIX PATH PORTABILITY ACROSS ALL MANIFESTS
+# ------------------------------------------------------------
+print("\n--- TEST 24: POSIX Path Portability ---")
+try:
+    manifest_paths = [
+        BASE_DIR / "data" / "external_datasets" / "rsvqa" / "rsvqa_train.json",
+        BASE_DIR / "data" / "external_datasets" / "rsvqa" / "rsvqa_official_eval.json",
+        BASE_DIR / "data" / "external_datasets" / "vrsbench" / "vrsbench_official_eval.json",
+        BASE_DIR / "data" / "external_datasets" / "cdvqa" / "cdvqa_official_eval.json",
+    ]
+    for mp in manifest_paths:
+        raw_text = mp.read_text(encoding="utf-8")
+        test_assert("\\\\" not in raw_text,
+                    f"Manifest {mp.name} contains zero Windows backslashes (POSIX portable)",
+                    f"Backslash found in {mp.name}")
+except Exception as e:
+    test_assert(False, "POSIX path portability test", str(e))
 
 # ------------------------------------------------------------
 # FINAL SUMMARY

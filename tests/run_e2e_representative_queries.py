@@ -9,6 +9,10 @@ import sys
 import json
 from pathlib import Path
 
+# Configure safe utf-8 stdout encoding for Windows console
+if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))

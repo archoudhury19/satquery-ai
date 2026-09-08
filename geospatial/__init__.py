@@ -24,10 +24,14 @@ from geospatial.sar_processor import (
 from geospatial.fusion import (
     align_mask_to_reference,
     fuse_cross_modal_masks,
+    apply_speckle_filter,
+    make_fusion_overlay,
 )
 from geospatial.change_detector import (
     compute_bitemporal_change,
     make_bitemporal_overlay,
+    generate_cdvqa_answer,
+    compute_spectral_difference,
 )
 from geospatial.multi_class_segmenter import segment_land_cover
 from geospatial.clip_segmenter import segment_with_clip
@@ -50,8 +54,12 @@ __all__ = [
     "detect_sar_builtup_backscatter",
     "align_mask_to_reference",
     "fuse_cross_modal_masks",
+    "apply_speckle_filter",
+    "make_fusion_overlay",
     "compute_bitemporal_change",
     "make_bitemporal_overlay",
+    "generate_cdvqa_answer",
+    "compute_spectral_difference",
     "segment_land_cover",
     "segment_with_clip",
     "ground_with_clip",

@@ -141,7 +141,46 @@ def generate_rs_caption(
             import logging
             logging.warning(f"GeoRSCLIP caption scoring: {e}")
 
-    # 4. Formulate structured VRSBench narratives
+    # 4. Cardinal sector spatial layout analysis (North, South, East, West, Central)
+    h_third, w_third = H // 3, W // 3
+    sectors = {
+        "north": rgb[:h_third, :],
+        "south": rgb[2*h_third:, :],
+        "west": rgb[:, :w_third],
+        "east": rgb[:, 2*w_third:],
+        "central": rgb[h_third:2*h_third, w_third:2*w_third],
+    }
+    
+    sector_features: Dict[str, str] = {}
+    for s_name, s_rgb in sectors.items():
+        if s_rgb.size == 0:
+            continue
+        sr, sg, sb = s_rgb[..., 0].astype(float), s_rgb[..., 1].astype(float), s_rgb[..., 2].astype(float)
+        s_water = float((((sb > sr + 4) | (sg > sr + 6)) & (sr < 90)).mean())
+        s_veg = float(((sg > sr + 4) & (sg > sb + 2)).mean())
+        s_desert = float(((sr > 95) & (sg > 75) & (sr >= sb + 6)).mean())
+        if s_water > 0.25:
+            sector_features[s_name] = "water body / river corridor"
+        elif s_veg > 0.35:
+            sector_features[s_name] = "dense vegetation cover"
+        elif s_desert > 0.50:
+            sector_features[s_name] = "arid dunes / exposed soil"
+        else:
+            sector_features[s_name] = "built-up structures"
+
+    layout_notes = []
+    if "west" in sector_features and sector_features["west"] == "water body / river corridor":
+        layout_notes.append("a prominent water channel traversing the western sector")
+    elif "east" in sector_features and sector_features["east"] == "water body / river corridor":
+        layout_notes.append("a water corridor along the eastern sector")
+    if "central" in sector_features:
+        layout_notes.append(f"{sector_features['central']} concentrated across the central area")
+    if "north" in sector_features and sector_features["north"] != sector_features.get("central"):
+        layout_notes.append(f"{sector_features['north']} spanning the northern zone")
+
+    layout_sentence = f"Spatially, {', with '.join(layout_notes)}." if layout_notes else ""
+
+    # Formulate structured VRSBench narratives
     landscape_narratives = {
         "urban_dense": "a dense metropolitan urban corridor characterized by concentrated built-up fabric and arterial transportation infrastructure",
         "urban_suburban": "a mixed suburban settlement featuring planned residential grids, transport networks, and interspersed green canopy",
@@ -199,12 +238,15 @@ def generate_rs_caption(
     if bare_pct > 0.5: breakdown_parts.append(f"{bare_pct:.1f}% open bare terrain")
     breakdown_text = ", ".join(breakdown_parts) if breakdown_parts else f"{built_pct:.1f}% built-up, {veg_pct:.1f}% vegetation"
 
-    # Synthesize comprehensive 3-tier report
+    # Synthesize comprehensive 4-tier publication standard report
     sentence_1 = f"The satellite observation captures {landscape_desc}."
     sentence_2 = f"Quantified surface land-cover distribution comprises {breakdown_text}."
     sentence_3 = f"Major identifiable spatial objects and structural features include {obj_text}."
+    full_parts = [sentence_1, sentence_2, sentence_3]
+    if layout_sentence:
+        full_parts.append(layout_sentence)
 
-    full_caption = f"{sentence_1} {sentence_2} {sentence_3}"
+    full_caption = " ".join(full_parts)
 
     diagnostics = {
         "landscape_classification": top_landscape,
@@ -216,6 +258,7 @@ def generate_rs_caption(
             "desert_percent": desert_pct,
             "bare_percent": bare_pct,
         },
+        "cardinal_sectors": sector_features,
         "standard": "VRSBench & BigEarthNet.txt Remote Sensing Standard",
     }
 

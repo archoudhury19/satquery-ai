@@ -3,6 +3,9 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 
+import re
+
+
 def understand_query(
     query: str,
     image_count: int,
@@ -10,155 +13,38 @@ def understand_query(
 
     q = query.lower().strip()
 
-    spatial = any(
-        term in q
-        for term in [
-            "where",
-            "highlight",
-            "locate",
-            "region",
-            "area",
-            "coordinates",
-            "show me where",
-            "point out",
-            "find",
-            "detect",
-            "identify",
-            "isolate",
-            "show",
-            "water body",
-            "river",
-            "lake",
-            "reservoir",
-        ]
-    )
+    # 1. Captioning / Scene Description intent
+    captioning = bool(re.search(
+        r"\b(describe|description|caption|scene\s+summary|summarize|overview|what\s+is\s+visible|what\s+does\s+this\s+(?:image|scene)\s+(?:show|depict)|tell\s+me\s+about)\b",
+        q
+    ))
 
-    temporal = any(
-        term in q
-        for term in [
-            "compare",
-            "comparison",
-            "change",
-            "changed",
-            "increase",
-            "increased",
-            "decrease",
-            "decreased",
-            "before",
-            "after",
-            "between",
-            "grown",
-            "grew",
-            "shrunk",
-            "declined",
-            "expanded",
-            "difference",
-            "delta",
-            "fire",
-            "burn",
-            "scar",
-            "wildfire",
-            "damage",
-            "affected",
-            "deforestation",
-            "loss",
-            "flood",
-            "inundation",
-        ]
-    )
+    # 2. Bi-Temporal Change intent
+    temporal = bool(re.search(
+        r"\b(change|changed|changes|difference|delta|between\s+these\s+two|before\s+and\s+after|increase|increased|decrease|decreased|loss|gain|expansion|expanded|shrink|shrunk|deforestation|wildfire|burn|scar|flood|inundation|remained\s+unchanged|growth|grown)\b",
+        q
+    ))
 
-    cross_modal = (
-        image_count >= 2
-        and any(
-            term in q
-            for term in [
-                "sar",
-                "optical",
-                "optical-sar",
-                "optical sar",
-                "cross-modal",
-                "cross modal",
-                "both images",
-                "together",
-                "multimodal",
-                "multi-modal",
-                "use both",
-            ]
-        )
-    )
+    # 3. Cross-Modal Optical-SAR intent (when 2 images are present)
+    cross_modal = (image_count >= 2) and bool(re.search(
+        r"\b(sar|radar|optical|optical-sar|cross-modal|multimodal|multi-sensor|both\s+images|together|joint|complementary|consensus)\b",
+        q
+    ))
 
-    captioning = any(
-        term in q
-        for term in [
-            "describe",
-            "description",
-            "caption",
-            "scene",
-            "scene description",
-            "what is visible",
-        ]
-    )
+    # 4. Multi-Class Land-Cover Segmentation
+    segmentation = (not captioning) and bool(re.search(
+        r"\b(segment|segmentation|classify\s+all|colour-code|color-code|land-cover\s+map|all\s+classes|different\s+colou?rs|map\s+land\s+cover)\b",
+        q
+    ))
 
-    grounding = (
-        spatial
-        and not captioning
-        and any(
-            term in q
-            for term in [
-                "highlight",
-                "locate",
-                "where",
-                "show",
-                "region",
-                "point out",
-                "find",
-                "detect",
-                "identify",
-                "isolate",
-                "water body",
-                "river",
-                "lake",
-                "reservoir",
-            ]
-        )
-    )
+    # 5. Dense Visual Grounding intent (spatial localization of specific objects/features)
+    grounding = (not captioning) and (not segmentation) and bool(re.search(
+        r"\b(highlight|locate|pinpoint|where\s+is|show\s+me\s+where|point\s+out|box|delineate|find|isolate|water\s+body|river|lake|reservoir|channel)\b",
+        q
+    ))
 
-    # Multi-class land-cover segmentation: colour-map all classes at once
-    # Any of these phrases alone is sufficient to trigger the segmenter.
-    _SEG_TERMS = {
-        "segment", "segmentation",
-        "classify", "classification",
-        "colour map", "color map",
-        "colour code", "color code", "colour-coded",
-        "different colour", "different color",
-        "all classes",
-        "green field", "green fields",
-        "vegetation and water", "vegetation and built",
-        "colour-code", "colour code",
-        "map land cover", "land cover map", "map land-cover",
-        "land-cover map", "land cover classification",
-    }
-    # Two-term phrases: must contain one of these AND one of the class words
-    _CLASS_WORDS = {"water", "vegetation", "building", "buildings", "field",
-                    "fields", "urban", "forest", "bare", "soil", "built-up", "built_up"}
-
-    segmentation = (
-        not captioning
-        and (
-            any(term in q for term in _SEG_TERMS)
-            or (
-                any(term in q for term in ["segment", "classify", "classification", "land use", "colour", "color", "map"])
-                and any(word in q for word in _CLASS_WORDS)
-                and ("water" in q or "vegetation" in q or "built" in q or "bare" in q)
-            )
-            or (
-                # "identify … in different colours" pattern
-                "identify" in q
-                and any(word in q for word in _CLASS_WORDS)
-                and ("colour" in q or "color" in q or "different" in q)
-            )
-        )
-    )
+    # 6. Spatial context flag
+    spatial = grounding or bool(re.search(r"\b(where|location|coordinates|region|area|centroid|sector|north|south|east|west)\b", q))
 
     return {
         "spatial": spatial,

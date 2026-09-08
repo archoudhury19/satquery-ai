@@ -7,16 +7,26 @@ import cv2
 import numpy as np
 
 
+from geospatial.fusion import apply_speckle_filter
+
+
 def calibrate_sar_db(
     raw_band: np.ndarray,
+    calibration_factor_db: float = 0.0,
+    apply_lee: bool = True,
 ) -> np.ndarray:
     """
-    Convert raw Sentinel-1 / RISAT SAR DN values to calibrated decibel (dB) scale.
-    dB = 10 * log10(DN + eps)
+    Convert raw Sentinel-1 / RISAT SAR DN values to calibrated backscatter (dB) scale:
+    sigma^0_dB = 10 * log10(DN^2 + eps) - calibration_factor_db
+    Optionally applies an adaptive Lee speckle filter.
     """
     arr = np.nan_to_num(raw_band.astype(np.float32), nan=1e-5, posinf=1e4, neginf=1e-5)
     arr = np.maximum(arr, 1e-5)
-    return 10.0 * np.log10(arr)
+    if apply_lee:
+        arr = apply_speckle_filter(arr, method="lee", window_size=5)
+        arr = np.maximum(arr, 1e-5)
+    db = 10.0 * np.log10(np.square(arr) + 1e-6) - calibration_factor_db
+    return np.clip(db, -50.0, 20.0)
 
 
 def detect_sar_water_backscatter(

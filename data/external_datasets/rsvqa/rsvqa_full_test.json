@@ -1,0 +1,1394 @@
+[
+  {
+    "image_path": "demo_data/01_kolkata_optical_georef.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "urban",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/01_kolkata_optical_georef.tif",
+    "question": "Is there water present in this image?",
+    "answer": "yes",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/01_kolkata_optical_georef.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "yes",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/01_kolkata_optical_georef.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "20",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/01_kolkata_optical_georef.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "yes",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/02_kolkata_sar_sentinel1.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "urban",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/02_kolkata_sar_sentinel1.tif",
+    "question": "Is there water present in this image?",
+    "answer": "yes",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/02_kolkata_sar_sentinel1.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "yes",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/02_kolkata_sar_sentinel1.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "20",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/02_kolkata_sar_sentinel1.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "yes",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/03_sentinel2_multispectral_t1.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "rural",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/03_sentinel2_multispectral_t1.tif",
+    "question": "Is there water present in this image?",
+    "answer": "no",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/03_sentinel2_multispectral_t1.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "yes",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/03_sentinel2_multispectral_t1.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "0",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/03_sentinel2_multispectral_t1.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "no",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/04_sentinel2_multispectral_t2.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "rural",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/04_sentinel2_multispectral_t2.tif",
+    "question": "Is there water present in this image?",
+    "answer": "no",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/04_sentinel2_multispectral_t2.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "yes",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/04_sentinel2_multispectral_t2.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "0",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/04_sentinel2_multispectral_t2.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "no",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/assam_flood/assam_flood_t1.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "rural",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/assam_flood/assam_flood_t1.tif",
+    "question": "Is there water present in this image?",
+    "answer": "no",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/assam_flood/assam_flood_t1.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "yes",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/assam_flood/assam_flood_t1.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "0",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/assam_flood/assam_flood_t1.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "no",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/assam_flood/assam_flood_t2.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "rural",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/assam_flood/assam_flood_t2.tif",
+    "question": "Is there water present in this image?",
+    "answer": "no",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/assam_flood/assam_flood_t2.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "yes",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/assam_flood/assam_flood_t2.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "0",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/assam_flood/assam_flood_t2.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "no",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/bigearthnet/S1_sar_patch.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "rural",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/bigearthnet/S1_sar_patch.tif",
+    "question": "Is there water present in this image?",
+    "answer": "no",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/bigearthnet/S1_sar_patch.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "yes",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/bigearthnet/S1_sar_patch.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "0",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/bigearthnet/S1_sar_patch.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "no",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/bigearthnet/S2_multispectral_patch.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "rural",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/bigearthnet/S2_multispectral_patch.tif",
+    "question": "Is there water present in this image?",
+    "answer": "no",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/bigearthnet/S2_multispectral_patch.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "yes",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/bigearthnet/S2_multispectral_patch.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "0",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/bigearthnet/S2_multispectral_patch.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "no",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/cdvqa/cdvqa_time1.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "rural",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/cdvqa/cdvqa_time1.tif",
+    "question": "Is there water present in this image?",
+    "answer": "no",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/cdvqa/cdvqa_time1.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "yes",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/cdvqa/cdvqa_time1.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "0",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/cdvqa/cdvqa_time1.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "no",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/cdvqa/cdvqa_time2.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "rural",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/cdvqa/cdvqa_time2.tif",
+    "question": "Is there water present in this image?",
+    "answer": "no",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/cdvqa/cdvqa_time2.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "yes",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/cdvqa/cdvqa_time2.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "0",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/cdvqa/cdvqa_time2.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "no",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_agricultural.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "rural",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_agricultural.tif",
+    "question": "Is there water present in this image?",
+    "answer": "no",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_agricultural.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "yes",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_agricultural.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "0",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_agricultural.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "no",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_desert_bare.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "rural",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_desert_bare.tif",
+    "question": "Is there water present in this image?",
+    "answer": "no",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_desert_bare.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "no",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_desert_bare.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "0",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_desert_bare.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "no",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_forest_dense.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "rural",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_forest_dense.tif",
+    "question": "Is there water present in this image?",
+    "answer": "no",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_forest_dense.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "yes",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_forest_dense.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "0",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_forest_dense.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "no",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_river_delta.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "rural",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_river_delta.tif",
+    "question": "Is there water present in this image?",
+    "answer": "yes",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_river_delta.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "yes",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_river_delta.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "0",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_river_delta.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "no",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_suburban_mixed.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "urban",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_suburban_mixed.tif",
+    "question": "Is there water present in this image?",
+    "answer": "no",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_suburban_mixed.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "yes",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_suburban_mixed.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "20",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_suburban_mixed.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "yes",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_urban_dense.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "urban",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_urban_dense.tif",
+    "question": "Is there water present in this image?",
+    "answer": "no",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_urban_dense.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "yes",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_urban_dense.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "20",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_urban_dense.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "yes",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_water_dominant.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "rural",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_water_dominant.tif",
+    "question": "Is there water present in this image?",
+    "answer": "yes",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_water_dominant.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "no",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_water_dominant.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "0",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/edge_cases/ec_water_dominant.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "no",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/isro_sac/cartosat_optical_coregistered.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "urban",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/isro_sac/cartosat_optical_coregistered.tif",
+    "question": "Is there water present in this image?",
+    "answer": "no",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/isro_sac/cartosat_optical_coregistered.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "yes",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/isro_sac/cartosat_optical_coregistered.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "20",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/isro_sac/cartosat_optical_coregistered.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "yes",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/isro_sac/risat_sar_coregistered.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "rural",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/isro_sac/risat_sar_coregistered.tif",
+    "question": "Is there water present in this image?",
+    "answer": "no",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/isro_sac/risat_sar_coregistered.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "yes",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/isro_sac/risat_sar_coregistered.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "0",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/isro_sac/risat_sar_coregistered.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "no",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/real_world_satellite/real_san_francisco_optical.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "rural",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/real_world_satellite/real_san_francisco_optical.tif",
+    "question": "Is there water present in this image?",
+    "answer": "no",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/real_world_satellite/real_san_francisco_optical.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "yes",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/real_world_satellite/real_san_francisco_optical.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "0",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/real_world_satellite/real_san_francisco_optical.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "no",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/real_world_satellite/real_sentinel1_sar_alps.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "rural",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/real_world_satellite/real_sentinel1_sar_alps.tif",
+    "question": "Is there water present in this image?",
+    "answer": "no",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/real_world_satellite/real_sentinel1_sar_alps.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "yes",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/real_world_satellite/real_sentinel1_sar_alps.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "0",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/real_world_satellite/real_sentinel1_sar_alps.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "no",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/real_world_satellite/real_usgs_elevation_byte.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "rural",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/real_world_satellite/real_usgs_elevation_byte.tif",
+    "question": "Is there water present in this image?",
+    "answer": "no",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/real_world_satellite/real_usgs_elevation_byte.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "yes",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/real_world_satellite/real_usgs_elevation_byte.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "0",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/real_world_satellite/real_usgs_elevation_byte.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "no",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/vrsbench/vrsbench_sample_01.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "urban",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/vrsbench/vrsbench_sample_01.tif",
+    "question": "Is there water present in this image?",
+    "answer": "no",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/vrsbench/vrsbench_sample_01.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "yes",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/vrsbench/vrsbench_sample_01.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "20",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/vrsbench/vrsbench_sample_01.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "yes",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/vrsbench/vrsbench_sample_02_s2.tif",
+    "question": "Is this an urban or rural area?",
+    "answer": "urban",
+    "category": "urban_rural",
+    "options": [
+      "urban",
+      "rural"
+    ]
+  },
+  {
+    "image_path": "demo_data/vrsbench/vrsbench_sample_02_s2.tif",
+    "question": "Is there water present in this image?",
+    "answer": "no",
+    "category": "presence_water",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/vrsbench/vrsbench_sample_02_s2.tif",
+    "question": "Is vegetation or woodland visible?",
+    "answer": "yes",
+    "category": "presence_veg",
+    "options": [
+      "yes",
+      "no"
+    ]
+  },
+  {
+    "image_path": "demo_data/vrsbench/vrsbench_sample_02_s2.tif",
+    "question": "How many buildings are in the scene?",
+    "answer": "20",
+    "category": "count_buildings",
+    "options": [
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "10",
+      "15",
+      "20"
+    ]
+  },
+  {
+    "image_path": "demo_data/vrsbench/vrsbench_sample_02_s2.tif",
+    "question": "Is the built-up area larger than the water area?",
+    "answer": "yes",
+    "category": "comparison",
+    "options": [
+      "yes",
+      "no"
+    ]
+  }
+]

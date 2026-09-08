@@ -704,6 +704,7 @@
         <button class="preset-pill demo-btn" data-key="bitemporal">🔥 California Wildfire T1/T2 (Real Sentinel-2)</button>
         <button class="preset-pill demo-btn" data-key="real_sf">🌐 San Francisco Bay (COG)</button>
         <button class="preset-pill demo-btn" data-key="optical_sar">📡 Cartosat + RISAT SAR (ISRO/SAC)</button>
+        <button class="preset-pill demo-btn" data-key="bigearthnet">🌍 BigEarthNet-MM (Optical + SAR)</button>
       </div>
       <div class="toolbar-row">
         <span class="toolbar-label">🌍 Edge Cases:</span>
@@ -1190,6 +1191,11 @@ const SCENE_METADATA = {
     location: 'Hooghly River & Kolkata / Howrah, India',
     date: 'November 08, 2022',
     sensor: 'ISRO Cartosat-2S (0.8m) + RISAT-1A SAR'
+  },
+  bigearthnet: {
+    location: 'BigEarthNet-MM Benchmark Tile (S1/S2 Co-registered)',
+    date: 'Multimodal Benchmark (arXiv:2603.29630)',
+    sensor: 'Sentinel-1 Dual-Pol SAR (VV/VH) + Sentinel-2 MSI (12-Band)'
   },
   real_sf: {
     location: 'San Francisco Bay & Golden Gate, CA',

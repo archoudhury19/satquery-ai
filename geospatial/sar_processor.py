@@ -18,14 +18,24 @@ def calibrate_sar_db(
     """
     Convert raw Sentinel-1 / RISAT SAR DN values to calibrated backscatter (dB) scale:
     sigma^0_dB = 10 * log10(DN^2 + eps) - calibration_factor_db
+    If the array is already in decibels (negative float distribution), preserves it directly!
     Optionally applies an adaptive Lee speckle filter.
     """
-    arr = np.nan_to_num(raw_band.astype(np.float32), nan=1e-5, posinf=1e4, neginf=1e-5)
-    arr = np.maximum(arr, 1e-5)
+    arr = raw_band.astype(np.float32)
+    valid = arr[np.isfinite(arr)]
+    # Check if the raster is already calibrated in decibels (e.g. Sentinel-1 RTC or S1 in dB)
+    is_already_db = len(valid) > 0 and (np.percentile(valid, 50) < 0.0 or (valid < 0.0).mean() > 0.40)
+
+    if is_already_db:
+        db = arr
+    else:
+        arr_clean = np.nan_to_num(arr, nan=1e-5, posinf=1e4, neginf=1e-5)
+        arr_clean = np.maximum(arr_clean, 1e-5)
+        db = 10.0 * np.log10(np.square(arr_clean) + 1e-6) - calibration_factor_db
+
     if apply_lee:
-        arr = apply_speckle_filter(arr, method="lee", window_size=5)
-        arr = np.maximum(arr, 1e-5)
-    db = 10.0 * np.log10(np.square(arr) + 1e-6) - calibration_factor_db
+        db = apply_speckle_filter(db, method="lee", window_size=5)
+
     return np.clip(db, -50.0, 20.0)
 
 

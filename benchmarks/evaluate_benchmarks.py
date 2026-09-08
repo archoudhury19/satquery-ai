@@ -96,8 +96,13 @@ def run_benchmark_evaluation(
 
     if rsvqa_file.exists():
         with open(rsvqa_file, "r", encoding="utf-8") as f:
-            rsvqa_items = json.load(f)
+            all_items = json.load(f)
+            # Only evaluate items that have physically existing images on disk
+            rsvqa_items = [x for x in all_items if x.get("image_path") and (BASE_DIR / x["image_path"]).exists()]
     else:
+        rsvqa_items = []
+
+    if not rsvqa_items:
         rsvqa_items = [
             {"image_path": "demo_data/vrsbench/vrsbench_sample_01.tif", "question": "Is this an urban or rural area?", "answer": "urban"},
             {"image_path": "demo_data/vrsbench/vrsbench_sample_01.tif", "question": "Is there a river in this image?", "answer": "yes"},
@@ -107,10 +112,8 @@ def run_benchmark_evaluation(
     # Evaluate across sample limit
     eval_slice = rsvqa_items[:sample_limit]
     for idx, item in enumerate(eval_slice):
-        img_rel = item.get("image_path", "demo_data/vrsbench/vrsbench_sample_01.tif")
+        img_rel = item.get("image_path")
         full_img_p = BASE_DIR / img_rel
-        if not full_img_p.exists():
-            full_img_p = DEMO_DIR / "vrsbench" / "vrsbench_sample_01.tif"
 
         dyn_id = f"dyn_rsvqa_{idx}"
         if dyn_id not in FILES:
@@ -162,7 +165,9 @@ def run_benchmark_evaluation(
     }).json()
     pred_bbox = res_ground.get("bounding_box")
     pred_loc = res_ground.get("grounding_location")
-    grounding_eval = compute_grounding_metrics(pred_bbox, pred_loc, "south-west")
+    # Reference river spatial extent in Cartosat-2S scene [y1, x1, y2, x2]
+    gt_bbox = [165, 0, 348, 216]
+    grounding_eval = compute_grounding_metrics(pred_bbox, pred_loc, "south-west", gt_bbox=gt_bbox)
 
     results["benchmarks"]["VRSBench"] = {
         "captioning": {

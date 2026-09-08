@@ -84,20 +84,7 @@ def build_training_samples(vlm: Any, demo_dir: Path) -> List[Tuple[str, str, str
                 for qa in item.get("vqa", []):
                     samples.append((img_t2, qa["question"], qa["answer"].strip().lower()))
 
-    # 4. Ingest from full RSVQA test set
-    rsvqa_full = EXTERNAL_DATA_DIR / "rsvqa" / "rsvqa_full_test.json"
-    if rsvqa_full.exists():
-        try:
-            with open(rsvqa_full, "r", encoding="utf-8") as f:
-                rsvqa_items = json.load(f)
-                for item in rsvqa_items:
-                    img_p = str(BASE_DIR / item.get("image_path", ""))
-                    samples.append((img_p, item["question"], item["answer"].strip().lower()))
-            print(f"[Train] Ingested {len(rsvqa_items)} QA pairs from full RSVQA dataset.")
-        except Exception as exc:
-            print(f"[Train] Note reading RSVQA: {exc}")
-
-    # 5. Ingest from authentic BigEarthNet annotations & balanced train set
+    # 4. Ingest authentic BigEarthNet annotations
     s2_img = str(demo_dir / "bigearthnet" / "S2_multispectral_patch.tif")
     ben_ann = demo_dir / "bigearthnet" / "annotations.json"
     if ben_ann.exists():
@@ -109,21 +96,9 @@ def build_training_samples(vlm: Any, demo_dir: Path) -> List[Tuple[str, str, str
         except Exception as exc:
             print(f"[Train] Note reading BigEarthNet annotations: {exc}")
 
-    ben_train_file = EXTERNAL_DATA_DIR / "bigearthnet" / "bigearthnet_full_train.json"
-    if ben_train_file.exists():
-        try:
-            with open(ben_train_file, "r", encoding="utf-8") as f:
-                ben_train = json.load(f)
-                # Take balanced yes/no pairs
-                yes_items = [x for x in ben_train if x.get("answer", "").strip().lower() == "yes"][:60]
-                no_items = [x for x in ben_train if x.get("answer", "").strip().lower() == "no"][:60]
-                for item in yes_items + no_items:
-                    samples.append((s2_img, item["question"], item["answer"].strip().lower()))
-            print(f"[Train] Ingested {len(yes_items) + len(no_items)} balanced QA pairs from BigEarthNet.txt.")
-        except Exception as exc:
-            print(f"[Train] Note reading BigEarthNet train: {exc}")
-
-    return samples
+    # Only retain samples whose images physically exist on disk
+    valid_samples = [s for s in samples if s[0] and Path(s[0]).exists()]
+    return valid_samples
 
 
 def train_adapter(
@@ -190,12 +165,25 @@ def train_adapter(
     if not img_embs:
         raise ValueError("No valid training samples could be extracted.")
 
-    dataset = BigEarthNetAdapterDataset(
+    full_dataset = BigEarthNetAdapterDataset(
         image_embeddings=torch.stack(img_embs),
         text_embeddings=torch.stack(txt_embs),
         labels=torch.tensor(label_ids, dtype=torch.long),
     )
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
+
+    # Disjoint 80/20 train/validation split
+    total_len = len(full_dataset)
+    val_len = max(1, int(0.20 * total_len))
+    train_len = total_len - val_len
+
+    train_dataset, val_dataset = torch.utils.data.random_split(
+        full_dataset,
+        [train_len, val_len],
+        generator=torch.Generator().manual_seed(42),
+    )
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
     adapter = RSVQAAdapter(
         input_dim=1024,
@@ -206,19 +194,21 @@ def train_adapter(
     optimizer = torch.optim.AdamW(adapter.parameters(), lr=lr, weight_decay=1e-3)
     criterion = nn.CrossEntropyLoss()
 
-    print(f"\n[Train] Starting Adapter Training ({epochs} epochs, {len(dataset)} samples, batch_size={batch_size}, grad_accum={gradient_accumulation_steps})...")
-    adapter.train()
+    print(f"\n[Train] Starting Adapter Training ({epochs} epochs, {train_len} train / {val_len} val samples, batch_size={batch_size})...")
 
     final_loss = 0.0
     final_acc = 0.0
+    best_val_acc = 0.0
+    final_val_loss = 0.0
 
     for epoch in range(1, epochs + 1):
+        adapter.train()
         total_loss = 0.0
         correct = 0
         total = 0
         optimizer.zero_grad()
 
-        for step_idx, (batch_img, batch_txt, batch_labels) in enumerate(dataloader):
+        for step_idx, (batch_img, batch_txt, batch_labels) in enumerate(train_loader):
             batch_img = batch_img.to(device)
             batch_txt = batch_txt.to(device)
             batch_labels = batch_labels.to(device)
@@ -230,7 +220,7 @@ def train_adapter(
             loss_scaled = loss / gradient_accumulation_steps
             loss_scaled.backward()
 
-            if (step_idx + 1) % gradient_accumulation_steps == 0 or (step_idx + 1) == len(dataloader):
+            if (step_idx + 1) % gradient_accumulation_steps == 0 or (step_idx + 1) == len(train_loader):
                 optimizer.step()
                 optimizer.zero_grad()
 
@@ -244,8 +234,31 @@ def train_adapter(
         final_loss = avg_loss
         final_acc = acc
 
+        # Explicit Validation Loop on held-out samples
+        adapter.eval()
+        val_loss_total = 0.0
+        val_correct = 0
+        val_total = 0
+        with torch.no_grad():
+            for v_img, v_txt, v_labels in val_loader:
+                v_img = v_img.to(device)
+                v_txt = v_txt.to(device)
+                v_labels = v_labels.to(device)
+                v_logits = adapter(v_img, v_txt)
+                v_loss = criterion(v_logits, v_labels)
+                val_loss_total += v_loss.item() * len(v_labels)
+                v_preds = v_logits.argmax(dim=-1)
+                val_correct += (v_preds == v_labels).sum().item()
+                val_total += len(v_labels)
+
+        val_acc = 100.0 * val_correct / max(val_total, 1)
+        val_avg_loss = val_loss_total / max(val_total, 1)
+        final_val_loss = val_avg_loss
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+
         if epoch % 5 == 0 or epoch == epochs:
-            print(f"  Epoch [{epoch:02d}/{epochs:02d}]  Loss: {avg_loss:.4f}  Accuracy: {acc:.1f}%")
+            print(f"  Epoch [{epoch:02d}/{epochs:02d}]  Train Loss: {avg_loss:.4f} Acc: {acc:.1f}% | Val Loss: {val_avg_loss:.4f} Val Acc: {val_acc:.1f}%")
 
     adapter_save_path = checkpoint_dir / "adapter.pt"
     torch.save(adapter.state_dict(), adapter_save_path)
@@ -258,10 +271,13 @@ def train_adapter(
             cfg = json.load(f)
         cfg.update({
             "dataset": "BigEarthNet.txt (arXiv:2603.29630) + RSVQAxBEN",
-            "adaptation_train_samples": len(dataset),
+            "adaptation_train_samples": train_len,
+            "adaptation_val_samples": val_len,
             "training_epochs": epochs,
             "final_training_loss": round(final_loss, 4),
-            "best_internal_validation_accuracy": round(final_acc / 100.0, 4),
+            "final_training_accuracy": round(final_acc / 100.0, 4),
+            "final_validation_loss": round(final_val_loss, 4),
+            "best_internal_validation_accuracy": round(best_val_acc / 100.0, 4),
             "batch_size": batch_size,
             "gradient_accumulation_steps": gradient_accumulation_steps,
             "citation": "BigEarthNet.txt: A Large-Scale Multi-Sensor Image-Text Dataset (arXiv:2603.29630)",

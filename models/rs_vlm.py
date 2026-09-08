@@ -569,9 +569,13 @@ class RemoteSensingVLM:
     @staticmethod
     def _is_binary_query(query: str) -> bool:
         ql = query.lower().strip()
+        # Alternative questions (e.g. "is this A or B?") are NOT binary yes/no questions
+        if re.search(r"\b(?:or)\b", ql) and not re.search(r"\b(?:yes or no|true or false)\b", ql):
+            return False
         binary_starters = (
-            "is ", "are ", "does ", "do ", "would you ", "can you ",
-            "could you ", "will ", "did ", "has ", "have ", "was ", "were "
+            "is there", "are there", "does this", "do these", "would you say",
+            "is a ", "is an ", "are any ", "can you see", "was there", "has there",
+            "is it ", "are they ", "does the "
         )
         if any(ql.startswith(b) for b in binary_starters):
             return True
@@ -917,7 +921,7 @@ class RemoteSensingVLM:
             p_no = float(probabilities[1].item()) if probabilities.numel() > 1 else 0.5
             if answer not in ["yes", "no"]:
                 answer = "yes" if p_yes >= p_no else "no"
-                confidence = round(float(np.clip(max(p_yes, p_no) / (p_yes + p_no + 1e-8), 0.70, 0.98)), 3)
+                confidence = round(float(max(p_yes, p_no) / (p_yes + p_no + 1e-8)), 3)
 
         # ----------------------------------------------------
         # Top-5 predictions

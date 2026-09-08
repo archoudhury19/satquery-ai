@@ -39,7 +39,23 @@ def compute_vqa_accuracy(predictions: List[str], ground_truths: List[str]) -> Di
         norm_gt = normalize_text(gt)
 
         # Match check: exact match or containment for short answers (yes/no, urban/rural)
-        is_correct = (norm_p == norm_gt) or (norm_gt in norm_p.split())
+        p_words = norm_p.split()
+        if not p_words:
+            is_correct = (norm_gt == "")
+        elif norm_gt in {"yes", "no"}:
+            first_word = p_words[0] if p_words else ""
+            if norm_gt == "yes":
+                is_correct = (first_word == "yes") or (
+                    "yes" in p_words and "no" not in p_words and "not" not in p_words
+                )
+            else:
+                is_correct = (first_word == "no") or (
+                    "no" in p_words and "yes" not in p_words
+                ) or ("not" in p_words and "yes" not in p_words)
+        else:
+            is_correct = (norm_p == norm_gt) or (
+                len(norm_gt.split()) == 1 and norm_gt in p_words
+            )
 
         if norm_gt not in class_stats:
             class_stats[norm_gt] = {"correct": 0, "total": 0}
@@ -163,37 +179,55 @@ def compute_bbox_iou(box1: List[int], box2: List[int]) -> float:
     return round(inter_area / union_area, 4)
 
 
+def _to_bbox_list(bbox: Any) -> Optional[List[int]]:
+    """Convert dict or list bounding box to [y1, x1, y2, x2]."""
+    if not bbox:
+        return None
+    if isinstance(bbox, dict):
+        if all(k in bbox for k in ("x1", "y1", "x2", "y2")):
+            return [int(bbox["y1"]), int(bbox["x1"]), int(bbox["y2"]), int(bbox["x2"])]
+        if all(k in bbox for k in ("ymin", "xmin", "ymax", "xmax")):
+            return [int(bbox["ymin"]), int(bbox["xmin"]), int(bbox["ymax"]), int(bbox["xmax"])]
+    elif isinstance(bbox, (list, tuple)) and len(bbox) >= 4:
+        return [int(bbox[0]), int(bbox[1]), int(bbox[2]), int(bbox[3])]
+    return None
+
+
 def compute_grounding_metrics(
-    pred_bbox: Optional[List[int]],
-    pred_location: Optional[str],
-    expected_location: Optional[str],
+    pred_bbox: Optional[Any],
+    pred_location: Optional[str] = None,
+    expected_location: Optional[str] = None,
+    gt_bbox: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """
-    Compute spatial grounding metrics: location agreement and bbox validity.
+    Compute spatial grounding metrics: location agreement, bbox validity,
+    and genuine Precision@0.5 against ground truth bbox (IoU >= 0.50).
     """
     loc_match = False
     if pred_location and expected_location:
         norm_p = normalize_text(pred_location)
         norm_e = normalize_text(expected_location)
-        # Check if cardinal words overlap (e.g. south in south-west)
         e_words = set(norm_e.split("-") + norm_e.split())
         p_words = set(norm_p.split("-") + norm_p.split())
         loc_match = bool(e_words & p_words)
 
-    has_valid_box = False
-    if pred_bbox:
-        if isinstance(pred_bbox, dict):
-            has_valid_box = (
-                pred_bbox.get("x2", 0) > pred_bbox.get("x1", 0)
-                and pred_bbox.get("y2", 0) > pred_bbox.get("y1", 0)
-            )
-        elif isinstance(pred_bbox, (list, tuple)) and len(pred_bbox) >= 4:
-            has_valid_box = pred_bbox[2] > pred_bbox[0] and pred_bbox[3] > pred_bbox[1]
+    p_box = _to_bbox_list(pred_bbox)
+    has_valid_box = bool(p_box and p_box[2] > p_box[0] and p_box[3] > p_box[1])
+
+    g_box = _to_bbox_list(gt_bbox)
+    iou = 0.0
+    if has_valid_box and g_box and g_box[2] > g_box[0] and g_box[3] > g_box[1]:
+        iou = compute_bbox_iou(p_box, g_box)
+
+    # Precision@0.5 strictly requires reference box IoU >= 0.50
+    # If no ground truth box is provided or IoU < 0.50, precision_at_50 is 0.0
+    precision_at_50 = 1.0 if (iou >= 0.50) else 0.0
 
     return {
         "location_agreement": loc_match,
         "valid_bounding_box": has_valid_box,
-        "precision_at_50": 1.0 if (loc_match or has_valid_box) else 0.0,
+        "iou": round(iou, 4),
+        "precision_at_50": precision_at_50,
     }
 
 
@@ -203,23 +237,34 @@ def compute_cdvqa_metrics(
     true_direction: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    Evaluate Change Detection Visual Question Answering.
+    Evaluate Change Detection Visual Question Answering with negation awareness.
     """
     norm_p = normalize_text(pred_answer)
     norm_t = normalize_text(true_answer)
 
-    # 1. Directional Classification Accuracy
+    # 1. Directional Classification Accuracy with negation awareness
     dir_acc = 0.0
     if true_direction:
         td = true_direction.lower()
-        if td in norm_p:
-            dir_acc = 1.0
-        elif td == "increased" and any(w in norm_p for w in ["increase", "expanded", "gain", "grew"]):
-            dir_acc = 1.0
-        elif td == "decreased" and any(w in norm_p for w in ["decrease", "loss", "shrunk", "drop"]):
-            dir_acc = 1.0
-        elif td == "remained unchanged" and any(w in norm_p for w in ["unchanged", "stable"]):
-            dir_acc = 1.0
+        has_not_increase = bool(re.search(r"\b(?:not|did\s+not|never|hasnt|has\s+not|no)\s+(?:increase|increased|expansion|gain|growth)\b", norm_p))
+        has_not_decrease = bool(re.search(r"\b(?:not|did\s+not|never|hasnt|has\s+not|no)\s+(?:decrease|decreased|drop|reduction|loss)\b", norm_p))
+
+        pred_increased = (
+            bool(re.search(r"\b(?:increase|increased|expansion|expanded|gain|grew|growth)\b", norm_p))
+            and not has_not_increase
+        )
+        pred_decreased = (
+            bool(re.search(r"\b(?:decrease|decreased|loss|shrunk|shrink|reduction|reduced|drop|dropped)\b", norm_p))
+            and not has_not_decrease
+        )
+        pred_unchanged = bool(re.search(r"\b(?:unchanged|remained\s+unchanged|no\s+significant\s+change|stable|constant)\b", norm_p))
+
+        if "increase" in td:
+            dir_acc = 1.0 if (pred_increased and not pred_decreased) else 0.0
+        elif "decrease" in td:
+            dir_acc = 1.0 if (pred_decreased and not pred_increased) else 0.0
+        elif "unchanged" in td:
+            dir_acc = 1.0 if (pred_unchanged or (not pred_increased and not pred_decreased)) else 0.0
 
     # 2. Key physical delta extraction
     p_deltas = re.findall(r"([+-]?\d+(?:\.\d+)?)\s*%", pred_answer)

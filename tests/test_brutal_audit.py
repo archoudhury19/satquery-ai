@@ -338,6 +338,172 @@ except Exception as e:
     test_assert(False, "Static UI telemetry audit", str(e))
 
 # ------------------------------------------------------------
+# TEST 12: SPATIAL PAIR VALIDATION (DISJOINT SCENE REJECTION)
+# ------------------------------------------------------------
+print("\n--- TEST 12: Spatial Pair Overlap Validation ---")
+try:
+    from backend.app import validate_pair_compatibility
+    # Disjoint rasters: Kolkata (lat ~22.5, lon ~88.3) vs San Francisco (lat ~37.7, lon ~ -122.4)
+    p_mock = {
+        "bounds_wgs84": [[22.4, 88.2], [22.6, 88.4]],
+        "count": 3,
+        "is_georeferenced": True,
+        "width": 512,
+        "height": 512,
+    }
+    s_mock = {
+        "bounds_wgs84": [[37.6, -122.5], [37.8, -122.3]],
+        "count": 1,
+        "is_georeferenced": True,
+        "width": 512,
+        "height": 512,
+    }
+    res_pair = validate_pair_compatibility(p_mock, s_mock)
+    compat = res_pair["compatible"]
+    issues = res_pair["issues"]
+    test_assert(compat is False, "Geographically disjoint pair marked compatible=False", f"Issues: {issues}")
+    test_assert(any("geographically disjoint" in iss.lower() for iss in issues), "Disjoint footprint issue recorded", str(issues))
+
+    # Overlapping rasters
+    s_overlapping = {
+        "bounds_wgs84": [[22.5, 88.3], [22.7, 88.5]],
+        "count": 1,
+        "is_georeferenced": True,
+        "width": 512,
+        "height": 512,
+    }
+    res_ok = validate_pair_compatibility(p_mock, s_overlapping)
+    compat_ok = res_ok["compatible"]
+    issues_ok = res_ok["issues"]
+    test_assert(compat_ok is True, "Overlapping pair marked compatible=True", f"Issues: {issues_ok}")
+except Exception as e:
+    test_assert(False, "Spatial pair validation test", str(e))
+
+# ------------------------------------------------------------
+# TEST 13: ALTERNATIVE VQA QUERY ROUTING (NO FORCED YES/NO)
+# ------------------------------------------------------------
+print("\n--- TEST 13: Alternative VQA Query Routing ---")
+try:
+    from models.rs_vlm import RemoteSensingVLM
+    test_assert(RemoteSensingVLM._is_binary_query("Is this an urban or rural area?") is False,
+                "'Is this an urban or rural area?' is NOT treated as binary yes/no", "Evaluated as binary")
+    test_assert(RemoteSensingVLM._is_binary_query("Is this water or forest?") is False,
+                "'Is this water or forest?' is NOT treated as binary yes/no", "Evaluated as binary")
+    test_assert(RemoteSensingVLM._is_binary_query("Is there a river in this image?") is True,
+                "'Is there a river in this image?' is correctly treated as binary", "Evaluated as non-binary")
+    test_assert(RemoteSensingVLM._is_binary_query("Is the water level higher, yes or no?") is True,
+                "Explicit 'yes or no' query treated as binary", "Evaluated as non-binary")
+
+    # Live VLM query: "Is this an urban or rural area?" should answer with "urban" or "rural", never "yes" or "no"
+    vlm_obj = RemoteSensingVLM()
+    test_vrs_p = BASE_DIR / "demo_data" / "vrsbench" / "vrsbench_sample_01.tif"
+    ans_dict = vlm_obj.analyze(test_vrs_p, "Is this an urban or rural area?")
+    cand_ans = ans_dict.get("answer", "").lower()
+    test_assert(cand_ans in ["urban", "rural"], "Alternative query returned 'urban' or 'rural' (not yes/no)", f"Answer: {cand_ans}")
+except Exception as e:
+    test_assert(False, "Alternative VQA query test", str(e))
+
+# ------------------------------------------------------------
+# TEST 14: VQA FALLBACK UNPACK SAFETY (3-TUPLE)
+# ------------------------------------------------------------
+print("\n--- TEST 14: VQA Fallback Unpack Safety ---")
+try:
+    from geospatial.scene_captioner import generate_rs_caption
+    from backend.app import analyze_single, _read_raster
+    # Verify generate_rs_caption returns 3 values (caption, confidence, diag)
+    test_s2_p = BASE_DIR / "demo_data" / "vrsbench" / "vrsbench_sample_01.tif"
+    raster_d = _read_raster(test_s2_p)
+    cap_out = generate_rs_caption(raster_d)
+    test_assert(isinstance(cap_out, tuple) and len(cap_out) == 3,
+                "generate_rs_caption returns 3-tuple (answer, confidence, diag)", f"Returned {len(cap_out)} items")
+
+    # Fallback simulation in analyze_single: query with unknown feature
+    single_res = analyze_single(test_s2_p, raster_d, feature="auto", task="vqa", query="Describe this scene land cover")
+    test_assert("answer" in single_res and "confidence" in single_res,
+                "analyze_single unpacked fallback cleanly without ValueError", str(single_res.get("answer"))[:60])
+except Exception as e:
+    test_assert(False, "VQA fallback unpack safety test", str(e))
+
+# ------------------------------------------------------------
+# TEST 15: ZERO-OVERLAP FUSION METRICS (NO ARTIFICIAL FLOORS)
+# ------------------------------------------------------------
+print("\n--- TEST 15: Zero-Overlap Fusion Metrics ---")
+try:
+    from backend.app import analyze_cross_modal
+    opt_p = BASE_DIR / "demo_data" / "isro_sac" / "cartosat_optical_coregistered.tif"
+    sar_p = BASE_DIR / "demo_data" / "isro_sac" / "risat_sar_coregistered.tif"
+    opt_data = _read_raster(opt_p)
+    sar_data = _read_raster(sar_p)
+
+    # Synthetic non-overlapping test: all zeros SAR
+    sar_zero_data = dict(sar_data)
+    H, W = opt_data["height"], opt_data["width"]
+    sar_zero_data["raw_band"] = np.full((H, W), -48.0, dtype=np.float32)
+
+    fusion_zero = analyze_cross_modal(opt_p, opt_data, sar_p, sar_zero_data, feature="built")
+    f_zero_metrics = fusion_zero.get("evidence", {}).get("fusion_metrics", {})
+    agreement_val = f_zero_metrics.get("agreement_pct", -1)
+    iou_val = f_zero_metrics.get("cross_modal_iou_pct", -1)
+
+    # Crucial audit test: neither agreement nor IoU should be artificially clipped to 45.0% or 20.0%
+    test_assert(agreement_val < 40.0, f"Agreement is not artificially clipped to 45% floor (got {agreement_val}%)", f"Got: {agreement_val}")
+    test_assert(iou_val < 15.0, f"IoU is not artificially clipped to 20% floor (got {iou_val}%)", f"Got: {iou_val}")
+except Exception as e:
+    test_assert(False, "Zero-overlap fusion test", str(e))
+
+# ------------------------------------------------------------
+# TEST 16: RIGOROUS BENCHMARK METRIC COUNTEREXAMPLES
+# ------------------------------------------------------------
+print("\n--- TEST 16: Benchmark Metric Counterexamples ---")
+try:
+    from benchmarks.evaluate_metrics import (
+        compute_grounding_metrics,
+        compute_cdvqa_metrics,
+        compute_vqa_accuracy,
+    )
+
+    # Counterexample 1: Precision@0.5 with non-overlapping bounding box
+    bad_pred_box = [0, 0, 10, 10]
+    gt_box = [100, 100, 200, 200]
+    g_res = compute_grounding_metrics(bad_pred_box, "north-west", "south-east", gt_bbox=gt_box)
+    test_assert(g_res["precision_at_50"] == 0.0,
+                "P@0.5 is 0.0 for non-overlapping predicted box (IoU < 0.50)", f"Got: {g_res['precision_at_50']}")
+
+    good_pred_box = [105, 105, 195, 195]
+    g_res_good = compute_grounding_metrics(good_pred_box, "south-east", "south-east", gt_bbox=gt_box)
+    test_assert(g_res_good["precision_at_50"] == 1.0,
+                "P@0.5 is 1.0 for high IoU predicted box (IoU >= 0.50)", f"Got: {g_res_good['precision_at_50']}")
+
+    # Counterexample 2: CDVQA Negation handling
+    cd_neg = compute_cdvqa_metrics("The area did not increase; it decreased by 12%", "The water area decreased", true_direction="increased")
+    test_assert(cd_neg["directional_accuracy"] == 0.0,
+                "CDVQA correctly assigns 0.0 directional accuracy when 'did not increase' is used for target 'increased'",
+                f"Got: {cd_neg['directional_accuracy']}")
+
+    cd_pos = compute_cdvqa_metrics("The area did not increase; it decreased by 12%", "The water area decreased", true_direction="decreased")
+    test_assert(cd_pos["directional_accuracy"] == 1.0,
+                "CDVQA correctly assigns 1.0 directional accuracy for target 'decreased'",
+                f"Got: {cd_pos['directional_accuracy']}")
+
+    # Counterexample 3: VQA Polarity & Word Boundary
+    vqa_test = compute_vqa_accuracy(
+        predictions=["No, there is no water; yes would be incorrect"],
+        ground_truths=["yes"]
+    )
+    test_assert(vqa_test["overall_accuracy"] == 0.0,
+                "VQA does not falsely match 'yes' inside a negative sentence", f"Got: {vqa_test['overall_accuracy']}%")
+
+    vqa_test_correct = compute_vqa_accuracy(
+        predictions=["No, there is no water; yes would be incorrect"],
+        ground_truths=["no"]
+    )
+    test_assert(vqa_test_correct["overall_accuracy"] == 100.0,
+                "VQA correctly matches 'no' when sentence starts with 'No'", f"Got: {vqa_test_correct['overall_accuracy']}%")
+
+except Exception as e:
+    test_assert(False, "Benchmark metric counterexamples test", str(e))
+
+# ------------------------------------------------------------
 # FINAL SUMMARY
 # ------------------------------------------------------------
 print("\n" + "=" * 80)

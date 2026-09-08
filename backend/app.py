@@ -253,6 +253,8 @@ def _read_raster(
             g_idx = _find_band_num(["green", "b03", "b3", "band 3", "band3"], 2 if count < 5 else (3 if count >= 7 else 2))
             b_idx = _find_band_num(["blue", "b02", "b2", "band 2", "band2"], 3 if count < 5 else (2 if count >= 7 else 3))
 
+            raw_first_band = src.read(1).astype(np.float32)
+
             if count >= 3:
                 raw_bands = src.read([r_idx, g_idx, b_idx])
                 # If raster is uint8, preserve exact radiometric RGB values without distorting color balance
@@ -273,7 +275,7 @@ def _read_raster(
                         rgb = np.zeros((src.height, src.width, 3), dtype=np.uint8)
             else:
                 band = _normalize_band(
-                    src.read(1)
+                    raw_first_band
                 )
                 rgb = np.stack(
                     [band, band, band],
@@ -307,6 +309,7 @@ def _read_raster(
 
             return {
                 "rgb": rgb,
+                "raw_band": raw_first_band,
                 "bands": bands_dict,
                 "width": src.width,
                 "height": src.height,
@@ -1206,7 +1209,7 @@ def analyze_single(
         None,
     }:
 
-        answer, confidence = (
+        answer, confidence, diag = (
             scene_caption(data)
         )
 
@@ -2082,7 +2085,7 @@ def detect_modality_feature(
                 data,
             )
 
-        if feature == "built-up":
+        if feature in {"built-up", "built", "urban"}:
             return detect_sar_builtup(
                 path,
             )
@@ -2639,10 +2642,15 @@ def analyze_cross_modal(
         is_veg = (gs > rs + 6) & (gs > bs + 4) & (water_mask == 0)
 
         # 2. Built-up mask via calibrated SAR backscatter + optical edge structure
-        sar_arr = np.asarray(sar_data.get("rgb", sar_data.get("sar", np.zeros((H, W)))))
-        if sar_arr.ndim == 3: sar_arr = sar_arr[:, :, 0]
-        if sar_arr.shape != (H, W): sar_arr = cv2.resize(sar_arr.astype(float), (W, H))
-        
+        if "raw_band" in sar_data and sar_data["raw_band"] is not None:
+            sar_arr = np.asarray(sar_data["raw_band"], dtype=np.float32)
+        else:
+            sar_arr = np.asarray(sar_data.get("rgb", sar_data.get("sar", np.zeros((H, W)))))
+            if sar_arr.ndim == 3:
+                sar_arr = sar_arr[:, :, 0]
+        if sar_arr.shape != (H, W):
+            sar_arr = cv2.resize(sar_arr.astype(float), (W, H))
+
         # Calibrate SAR backscatter (dB)
         sar_db = calibrate_sar_db(sar_arr)
 
@@ -2655,16 +2663,18 @@ def analyze_cross_modal(
         opt_water_cand = water_mask > 0
         water_union = int((sar_water_cand | opt_water_cand).sum())
         water_inter = int((sar_water_cand & opt_water_cand).sum())
-        water_agreement = (100.0 * water_inter / max(water_union, 1)) if water_union > 0 else 75.0
+        water_agreement = (100.0 * water_inter / water_union) if water_union > 0 else 0.0
 
         sar_built_cand = sar_db > -11.0
         opt_built_cand = built_mask > 0
         built_union = int((sar_built_cand | opt_built_cand).sum())
         built_inter = int((sar_built_cand & opt_built_cand).sum())
-        built_agreement = (100.0 * built_inter / max(built_union, 1)) if built_union > 0 else 70.0
+        built_agreement = (100.0 * built_inter / built_union) if built_union > 0 else 0.0
 
-        live_agreement_pct = round(float(np.clip((water_agreement + built_agreement) / 2.0, 45.0, 99.5)), 1)
-        live_iou_pct = round(float(np.clip(float(water_inter + built_inter) / float(max(water_union + built_union, 1)) * 100.0, 20.0, 95.0)), 1)
+        total_union = water_union + built_union
+        total_inter = water_inter + built_inter
+        live_agreement_pct = round(float((water_agreement + built_agreement) / 2.0), 1) if (water_union > 0 or built_union > 0) else 0.0
+        live_iou_pct = round(float(total_inter / total_union * 100.0), 1) if total_union > 0 else 0.0
 
         water_pct = round(100.0 * float((water_mask > 0).sum()) / water_mask.size, 1)
         built_pct = round(100.0 * float((built_mask > 0).sum()) / built_mask.size, 1)
@@ -2721,7 +2731,7 @@ def analyze_cross_modal(
         built_ev = spatial_evidence(built_mask, optical_data)
 
         # Dynamic confidence based on measured cross-modal agreement
-        confidence = round(float(np.clip(0.72 + (live_agreement_pct / 100.0) * 0.25, 0.75, 0.98)), 2)
+        confidence = round(float(min(0.98, max(0.35, 0.40 + (live_agreement_pct / 100.0) * 0.55))), 2)
 
         answer = (
             f"Using joint Optical ({opt_sensor_name}) and SAR ({sar_sensor_name}) fusion over {region_name}: "
@@ -2822,8 +2832,8 @@ def validate_pair_compatibility(
     issues: List[str] = []
     warnings: List[str] = []
 
-    p = primary["data"]
-    s = secondary["data"]
+    p = primary.get("data", primary)
+    s = secondary.get("data", secondary)
 
     # --------------------------------------------------------
     # Dimensions
@@ -2875,6 +2885,37 @@ def validate_pair_compatibility(
             "pairwise spatial alignment is limited "
             "to pixel-grid resizing."
         )
+
+    # --------------------------------------------------------
+    # Geographic Spatial Footprint Overlap
+    # --------------------------------------------------------
+    p_b84 = p.get("bounds_wgs84")
+    s_b84 = s.get("bounds_wgs84")
+    if p_b84 and s_b84:
+        p_lat_min, p_lon_min = p_b84[0]
+        p_lat_max, p_lon_max = p_b84[1]
+        s_lat_min, s_lon_min = s_b84[0]
+        s_lat_max, s_lon_max = s_b84[1]
+
+        overlap_lat = min(p_lat_max, s_lat_max) - max(p_lat_min, s_lat_min)
+        overlap_lon = min(p_lon_max, s_lon_max) - max(p_lon_min, s_lon_min)
+
+        if overlap_lat <= 0 or overlap_lon <= 0:
+            issues.append(
+                f"Images are geographically disjoint; bounding footprints do not overlap "
+                f"(Primary WGS84: {p_b84}, Secondary WGS84: {s_b84}). "
+                "Co-registration, cross-modal fusion, and bi-temporal change detection are physically invalid across non-overlapping scenes."
+            )
+    elif p.get("bounds") and s.get("bounds") and p.get("crs") and p.get("crs") == s.get("crs"):
+        p_left, p_bottom, p_right, p_top = p["bounds"]
+        s_left, s_bottom, s_right, s_top = s["bounds"]
+        overlap_x = min(p_right, s_right) - max(p_left, s_left)
+        overlap_y = min(p_top, s_top) - max(p_bottom, s_bottom)
+        if overlap_x <= 0 or overlap_y <= 0:
+            issues.append(
+                f"Images are geographically disjoint in CRS {p.get('crs')}; bounding boxes do not overlap "
+                f"(Primary: {p['bounds']}, Secondary: {s['bounds']})."
+            )
 
     # --------------------------------------------------------
     # Georeferencing
@@ -3153,6 +3194,21 @@ async def upload(
             ),
         )
 
+    # Enforce SIH Requirement 12: PNG/JPEG restricted to prescribed benchmark inputs
+    if suffix in {".png", ".jpg", ".jpeg"}:
+        fn_lower = (file.filename or "").lower()
+        is_benchmark_input = any(token in fn_lower for token in [
+            "vrsbench", "rsvqa", "cdvqa", "bigearthnet", "benchmark", "p000", "eval", "sample", "test", "patch", "grounding", "seg"
+        ])
+        if not is_benchmark_input:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Non-georeferenced PNG/JPEG formats are strictly restricted to prescribed benchmark evaluation datasets "
+                    "(VRSBench, RSVQA, CDVQA, BigEarthNet). Operational remote sensing workflows require georeferenced GeoTIFF (.tif, .tiff) rasters."
+                ),
+            )
+
     file_id = uuid.uuid4().hex
 
     target = (
@@ -3221,7 +3277,7 @@ async def upload(
         key: value
         for key, value
         in data.items()
-        if key not in ("rgb", "bands")
+        if key not in ("rgb", "bands", "raw_band")
     }
 
     metadata["modality"] = modality
@@ -3353,7 +3409,7 @@ def load_demo_sample(req: LoadDemoRequest):
             "id": sec_id,
             "filename": sec_p.name,
             "preview_url": f"/generated/{sec_preview}",
-            "metadata": {k: v for k, v in sec_data.items() if k not in ("rgb", "bands")},
+            "metadata": {k: v for k, v in sec_data.items() if k not in ("rgb", "bands", "raw_band")},
         }
 
     return {
@@ -3362,7 +3418,7 @@ def load_demo_sample(req: LoadDemoRequest):
             "id": prim_id,
             "filename": prim_p.name,
             "preview_url": f"/generated/{prim_preview}",
-            "metadata": {k: v for k, v in prim_data.items() if k not in ("rgb", "bands")},
+            "metadata": {k: v for k, v in prim_data.items() if k not in ("rgb", "bands", "raw_band")},
         },
         "secondary": sec_meta,
     }
@@ -3699,15 +3755,24 @@ def _handle_rs_captioner(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
 
 def _handle_rs_vqa(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
     primary = ctx["primary"]
+    secondary = ctx.get("secondary")
     feature = ctx["feature"]
     req = ctx["req"]
     ctx["trace"].append(
         {
             "step": "RS-VQA",
             "status": "ok",
-            "detail": "GeoRSCLIP + RSVQA Adapter selected.",
+            "detail": "GeoRSCLIP + RSVQA Adapter selected (multi-image comparison active)" if secondary else "GeoRSCLIP + RSVQA Adapter selected.",
         }
     )
+    if secondary:
+        return analyze_change(
+            primary["path"],
+            primary["data"],
+            secondary["path"],
+            secondary["data"],
+            req.query,
+        )
     return analyze_single(
         primary["path"],
         primary["data"],

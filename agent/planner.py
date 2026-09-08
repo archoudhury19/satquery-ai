@@ -19,15 +19,15 @@ def understand_query(
         q
     ))
 
-    # 2. Bi-Temporal Change intent
+    # 2. Bi-Temporal Change intent: explicitly asking for temporal change or comparison across dates
     temporal = bool(re.search(
-        r"\b(change|changed|changes|difference|delta|between\s+these\s+two|before\s+and\s+after|increase|increased|decrease|decreased|loss|gain|expansion|expanded|shrink|shrunk|deforestation|wildfire|burn|scar|flood|inundation|remained\s+unchanged|growth|grown)\b",
+        r"\b(what\s+changed|change\s+between|changes|difference|delta|between\s+these\s+two|before\s+and\s+after|increase|increased|decrease|decreased|loss|gain|expansion|expanded|shrink|shrunk|deforestation|wildfire\s+burn|burn\s+scar|damage\s+between|remained\s+unchanged|growth|grown|over\s+time)\b",
         q
     ))
 
-    # 3. Cross-Modal Optical-SAR intent (when 2 images are present)
-    cross_modal = (image_count >= 2) and bool(re.search(
-        r"\b(sar|radar|optical|optical-sar|cross-modal|multimodal|multi-sensor|both\s+images|together|joint|complementary|consensus)\b",
+    # 3. Cross-Modal Optical-SAR intent (when 2 images are present and not asking for temporal change)
+    cross_modal = (image_count >= 2) and (not temporal) and bool(re.search(
+        r"\b(optical\s*[-+and\s/]+\s*sar|optical\s+and\s+radar|sar\s+and\s+optical|cross-modal|multimodal|multi-sensor|joint|complementary|consensus|use\s+the\s+optical\s+and\s+sar)\b",
         q
     ))
 
@@ -37,13 +37,16 @@ def understand_query(
         q
     ))
 
-    # 5. Dense Visual Grounding intent (spatial localization of specific objects/features)
-    grounding = (not captioning) and (not segmentation) and bool(re.search(
-        r"\b(highlight|locate|pinpoint|where\s+is|show\s+me\s+where|point\s+out|box|delineate|find|isolate|water\s+body|river|lake|reservoir|channel)\b",
+    # 5. Presence Verification (VQA, not grounding)
+    is_presence_vqa = bool(re.search(r"^(?:is\s+there|are\s+there|does\s+this|do\s+these|can\s+you\s+see|is\s+a|is\s+an|are\s+any)\b", q))
+
+    # 6. Dense Visual Grounding intent (imperative spatial localization of specific objects/features)
+    grounding = (not captioning) and (not segmentation) and (not is_presence_vqa) and bool(re.search(
+        r"\b(highlight|locate|pinpoint|where\s+is|show\s+me\s+where|point\s+out|box\s+the|draw\s+a\s+box|delineate|find\s+the|isolate\s+the)\b",
         q
     ))
 
-    # 6. Spatial context flag
+    # 7. Spatial context flag
     spatial = grounding or bool(re.search(r"\b(where|location|coordinates|region|area|centroid|sector|north|south|east|west)\b", q))
 
     return {

@@ -333,13 +333,15 @@ def download_full_rsvqa(target_dir: Path = RSVQA_DIR) -> Dict[str, Any]:
             a_raw = json.load(f).get("answers", [])
 
         ans_by_qid = {a["question_id"]: a["answer"] for a in a_raw if a.get("active")}
-        demo_rasters = [
-            "demo_data/vrsbench/vrsbench_sample_01.tif",
-            "demo_data/bigearthnet/S2_multispectral_patch.tif",
-            "demo_data/isro_sac/cartosat_optical_coregistered.tif",
-            "demo_data/cdvqa/cdvqa_time1.tif",
-            "demo_data/cdvqa/cdvqa_time2.tif",
-        ]
+        img_file = target_dir / "LR_split_test_images.json"
+        img_map: Dict[int, str] = {}
+        if img_file.exists():
+            try:
+                with open(img_file, "r", encoding="utf-8") as f:
+                    img_raw = json.load(f).get("images", [])
+                    img_map = {img["id"]: img.get("name", "") for img in img_raw}
+            except Exception:
+                img_map = {}
 
         records = []
         for idx, q_entry in enumerate(q_raw):
@@ -349,10 +351,16 @@ def download_full_rsvqa(target_dir: Path = RSVQA_DIR) -> Dict[str, Any]:
             ans = ans_by_qid.get(qid)
             if ans is None:
                 continue
-            img_path = demo_rasters[idx % len(demo_rasters)]
+            img_id = q_entry.get("img_id")
+            fname = img_map.get(img_id, f"{img_id}.tif") if img_id is not None else None
+            # Check if genuine image file actually exists locally
+            local_img = target_dir / "Images" / fname if fname else None
+            img_path = str(local_img.relative_to(BASE_DIR)).replace("\\", "/") if (local_img and local_img.exists()) else None
+
             records.append({
                 "id": qid,
-                "img_id": q_entry.get("img_id"),
+                "img_id": img_id,
+                "image_name": fname,
                 "image_path": img_path,
                 "question": q_entry["question"],
                 "answer": str(ans),

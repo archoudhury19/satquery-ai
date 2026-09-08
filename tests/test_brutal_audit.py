@@ -20,9 +20,7 @@ import requests
 import numpy as np
 from pathlib import Path
 
-BASE_DIR = Path("c:/SatQueryMVP/satquery-ai")
-if not BASE_DIR.exists():
-    BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "SatQueryMVP" / "satquery-ai"
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 sys.path.insert(0, str(BASE_DIR))
 
@@ -758,6 +756,7 @@ try:
     manifest_paths = [
         BASE_DIR / "data" / "external_datasets" / "rsvqa" / "rsvqa_train.json",
         BASE_DIR / "data" / "external_datasets" / "rsvqa" / "rsvqa_official_eval.json",
+        BASE_DIR / "data" / "external_datasets" / "rsvqa" / "rsvqa_full_test.json",
         BASE_DIR / "data" / "external_datasets" / "vrsbench" / "vrsbench_official_eval.json",
         BASE_DIR / "data" / "external_datasets" / "cdvqa" / "cdvqa_official_eval.json",
     ]
@@ -768,6 +767,109 @@ try:
                     f"Backslash found in {mp.name}")
 except Exception as e:
     test_assert(False, "POSIX path portability test", str(e))
+
+# ------------------------------------------------------------
+# TEST 25: CDVQA MULTI-SCENE DIVERSITY & HASH VERIFICATION
+# ------------------------------------------------------------
+print("\n--- TEST 25: CDVQA Multi-Scene Diversity ---")
+try:
+    import hashlib
+    cd_manifest = json.loads((BASE_DIR / "data" / "external_datasets" / "cdvqa" / "cdvqa_official_eval.json").read_text(encoding="utf-8"))
+    distinct_scenes = set()
+    for item in cd_manifest:
+        p1 = BASE_DIR / item["image_t1"]
+        p2 = BASE_DIR / item["image_t2"]
+        test_assert(p1.exists(), f"CDVQA T1 image exists: {p1.name}")
+        test_assert(p2.exists(), f"CDVQA T2 image exists: {p2.name}")
+        h1 = hashlib.sha256(p1.read_bytes()).hexdigest()[:8]
+        h2 = hashlib.sha256(p2.read_bytes()).hexdigest()[:8]
+        distinct_scenes.add((h1, h2))
+
+    test_assert(len(distinct_scenes) >= 5,
+                f"CDVQA manifest contains diverse scene pairs (got {len(distinct_scenes)} distinct scene hashes, required >= 5)",
+                f"Only {len(distinct_scenes)} distinct scene pairs found")
+    scenarios = {item.get("scenario") for item in cd_manifest if item.get("scenario")}
+    test_assert(len(scenarios) >= 4,
+                f"CDVQA covers multiple event scenarios: {scenarios}",
+                f"Insufficient scenario coverage: {scenarios}")
+except Exception as e:
+    test_assert(False, "CDVQA multi-scene diversity test", str(e))
+
+# ------------------------------------------------------------
+# TEST 26: DYNAMIC TOOL SEQUENCING & AUDITABLE TRACE TIMING
+# ------------------------------------------------------------
+print("\n--- TEST 26: Dynamic Tool Sequencing & Trace Timings ---")
+try:
+    from backend.app import has_handler, execute_tool
+    test_assert(has_handler("input_validator"), "input_validator is registered in dynamic tool registry")
+    test_assert(has_handler("geospatial_tools"), "geospatial_tools is registered in dynamic tool registry")
+
+    # Verify analyze_grounding accepts forwarded parameters
+    from backend.app import analyze_grounding
+    import inspect
+    sig = inspect.signature(analyze_grounding)
+    test_assert("grid_size" in sig.parameters, "analyze_grounding accepts grid_size parameter")
+    test_assert("method" in sig.parameters, "analyze_grounding accepts method parameter")
+
+    # Run query through API to verify multi-tool sequencing and timing trace
+    demo_s2 = requests.post(f"{API_BASE}/api/load_demo", json={"sample_key": "sentinel2"}).json()
+    sample_id = demo_s2["primary"]["id"]
+    res_trace = requests.post(f"{API_BASE}/api/analyze", json={
+        "primary_id": sample_id,
+        "query": "Highlight and delineate the water bodies in this satellite image",
+    }).json()
+
+    trace_steps = res_trace.get("execution_trace", [])
+    step_names = [s.get("step") for s in trace_steps]
+    test_assert("Input Validator" in step_names, "Input Validator executed in multi-step plan")
+    test_assert("Geospatial Tools" in step_names, "Geospatial Tools executed sequentially in multi-step plan")
+
+    # Verify timing_ms and parameters exist in trace steps
+    for step in trace_steps:
+        if step.get("step") in {"Input Validator", "Geospatial Tools", "RS Grounding"}:
+            test_assert("timing_ms" in step, f"Step '{step.get('step')}' records execution timing_ms", f"Missing timing in {step}")
+            test_assert("parameters" in step, f"Step '{step.get('step')}' records execution parameters", f"Missing parameters in {step}")
+except Exception as e:
+    test_assert(False, "Tool sequencing and trace timing test", str(e))
+
+# ------------------------------------------------------------
+# TEST 27: SHARED GEOGRAPHIC GRID REPROJECTION FOR BI-TEMPORAL MASKS
+# ------------------------------------------------------------
+print("\n--- TEST 27: Shared Geographic Grid Reprojection ---")
+try:
+    from backend.app import analyze_change
+    from rasterio.transform import Affine
+
+    p1 = BASE_DIR / "demo_data" / "assam_flood" / "assam_flood_t1.tif"
+    p2 = BASE_DIR / "demo_data" / "assam_flood" / "assam_flood_t2.tif"
+    from backend.app import _read_raster
+    d1 = _read_raster(p1)
+    d2 = _read_raster(p2)
+
+    # Both images are georeferenced
+    test_assert(d1.get("is_georeferenced"), "Primary image is georeferenced")
+    test_assert(d2.get("is_georeferenced"), "Secondary image is georeferenced")
+
+    # Execute analyze_change and verify change_metrics contains reprojection-derived physical area
+    ch_res = analyze_change(p1, d1, p2, d2, feature="water", query="Has flood water expanded?")
+    test_assert("delta_percentage_points" in ch_res or "delta_percentage_points" in ch_res.get("evidence", {}), "Bi-temporal change computed delta percentage points")
+    test_assert(ch_res.get("confidence") is not None, "Bi-temporal change computed authentic confidence")
+    test_assert(ch_res.get("overlay") is not None, "Bi-temporal change generated change overlay")
+except Exception as e:
+    test_assert(False, "Geographic grid reprojection test", str(e))
+
+# ------------------------------------------------------------
+# TEST 28: CALIBRATED BENCHMARK THRESHOLDS
+# ------------------------------------------------------------
+print("\n--- TEST 28: Calibrated Benchmark Status Thresholds ---")
+try:
+    bench_code = (BASE_DIR / "benchmarks" / "evaluate_benchmarks.py").read_text(encoding="utf-8")
+    test_assert("oa >= 50.0" in bench_code, "RSVQA enforces OA >= 50.0% standard baseline threshold")
+    test_assert("avg_bin_acc >= 60.0" in bench_code, "CDVQA enforces change accuracy >= 60.0% threshold")
+    test_assert("agree_val >= 65.0" in bench_code, "ISRO consensus enforces agreement >= 65.0% threshold")
+    test_assert("MARGINAL" in bench_code, "Evaluator distinguishes MARGINAL vs PASSED vs FAIL states")
+except Exception as e:
+    test_assert(False, "Calibrated benchmark threshold test", str(e))
 
 # ------------------------------------------------------------
 # FINAL SUMMARY

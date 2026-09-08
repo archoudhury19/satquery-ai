@@ -134,7 +134,7 @@ def run_benchmark_evaluation(
         "overall_accuracy_percent": oa,
         "average_accuracy_percent": vqa_metrics["average_accuracy"],
         "latency_sec": round(time.time() - t0, 3),
-        "status": "PASSED" if oa >= 40.0 else "REVIEW",
+        "status": "PASSED" if oa >= 50.0 else ("MARGINAL" if oa >= 35.0 else "FAIL"),
     }
 
     # ============================================================
@@ -205,7 +205,7 @@ def run_benchmark_evaluation(
             "evaluated_boxes": len(p50_list),
         },
         "latency_sec": round(time.time() - t0, 3),
-        "status": "PASSED" if (avg_p50 >= 10.0 or avg_rouge >= 10.0 or avg_b1 >= 5.0) else "REVIEW",
+        "status": "PASSED" if (avg_p50 >= 25.0 or (avg_rouge >= 25.0 and avg_b1 >= 15.0)) else ("MARGINAL" if (avg_p50 >= 10.0 or avg_rouge >= 10.0 or avg_b1 >= 5.0) else "FAIL"),
     }
 
     # ============================================================
@@ -272,7 +272,7 @@ def run_benchmark_evaluation(
         "evaluated_change_accuracy": avg_bin_acc,
         "average_rouge_l": avg_cd_rouge,
         "latency_sec": round(time.time() - t0, 3),
-        "status": "PASSED" if (avg_bin_acc >= 40.0 or avg_cd_rouge >= 10.0) else "REVIEW",
+        "status": "PASSED" if avg_bin_acc >= 60.0 else ("MARGINAL" if avg_bin_acc >= 40.0 else "FAIL"),
     }
 
     # ============================================================
@@ -293,7 +293,7 @@ def run_benchmark_evaluation(
         "water_hectares": fusion_ev.get("water_hectares"),
         "built_up_hectares": fusion_ev.get("built_up_hectares"),
         "latency_sec": round(time.time() - t0, 3),
-        "status": "PASSED" if agree_val >= 40.0 else "REVIEW",
+        "status": "PASSED" if agree_val >= 65.0 else ("MARGINAL" if agree_val >= 40.0 else "FAIL"),
     }
 
     # ============================================================
@@ -359,7 +359,7 @@ def run_benchmark_evaluation(
         "evaluated_accuracy_percent": ben_acc,
         "sample_evaluations": ben_eval_records,
         "latency_sec": round(time.time() - t0, 3),
-        "status": "PASSED" if ben_acc >= 50.0 else "REVIEW",
+        "status": "PASSED" if ben_acc >= 60.0 else ("MARGINAL" if ben_acc >= 40.0 else "FAIL"),
     }
 
     return results

@@ -4,6 +4,22 @@ from typing import Any, Callable, Dict, List, Optional
 
 
 MODEL_REGISTRY: Dict[str, Dict[str, Any]] = {
+    "input_validator": {
+        "name": "Input Compatibility & Modality Validator",
+        "type": "pre_execution_guard",
+        "description": "Validates raster integrity, CRS coordinates, sensor band formats, and temporal/multimodal compatibility.",
+        "modalities": ["optical", "multispectral", "sar", "panchromatic"],
+        "input_formats": ["GeoTIFF", "TIFF", "PNG", "JPEG"],
+        "capabilities": ["format_check", "crs_verification", "spatial_overlap", "modality_inference"],
+        "parameters_schema": {
+            "strict": {"type": "boolean", "default": True},
+        },
+        "returns_schema": {
+            "valid": "boolean",
+            "primary": "string",
+        },
+        "status": "active",
+    },
     "rs_vqa": {
         "name": "Remote-Sensing VQA",
         "type": "vision_language",

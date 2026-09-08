@@ -1,0 +1,1 @@
+{"task":"change_detection","num_images":2,"conversations":[{"from":"user","value":"Image 1: <image>\nImage 2: <image>\nDid the areas of non-vegetated ground surface change?"},{"from":"gpt","value":"yes"}],"meta":{"source":"CDVQA/SECOND","split":"test","wh":[[512,512],[512,512]],"image_id":"07308.png","question_id":0,"image_record_id":0,"question_type":"change_or_not"}}

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -10,6 +11,7 @@ import cv2
 import numpy as np
 import rasterio
 import rasterio.warp
+from rasterio.transform import Affine
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
@@ -1331,6 +1333,9 @@ def analyze_grounding(
     path: Path,
     data: Dict[str, Any],
     query: str,
+    grid_size: int = 16,
+    method: Optional[str] = None,
+    feature: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Open-Vocabulary Visual Grounding powered by GeoRSCLIP & Remote-Sensing Spectral Indices.
@@ -1342,25 +1347,26 @@ def analyze_grounding(
     q = query.lower().strip()
     ai_grounding_used = False
     bounding_box = None
-    feature = "target"
-    method = "GeoRSCLIP Open-Vocabulary Grounding"
+    feature_name = feature or "target"
+    method_name = method or "GeoRSCLIP Open-Vocabulary Grounding"
     base_conf = 0.82
 
     # 1. Check if RS_VLM is available for AI Open-Vocabulary Grounding
     if RS_VLM is not None and getattr(RS_VLM, "available", False):
         try:
+            actual_grid = grid_size if grid_size in {4, 8, 16, 32} else 16
             clip_mask, clip_bbox, clip_conf, clip_diag = ground_with_clip(
                 data=data,
                 query=query,
                 vlm=RS_VLM,
-                grid_size=16,
+                grid_size=actual_grid,
             )
             active_mask = clip_mask
             bounding_box = clip_bbox
             base_conf = clip_conf
-            feature = clip_diag.get("target_phrase", "target")
+            feature = clip_diag.get("target_phrase", feature_name)
             ai_grounding_used = True
-            method = f"GeoRSCLIP Spatial Activation Map ({clip_diag.get('grid_shape', '16x16')})"
+            method = method or f"GeoRSCLIP Spatial Activation Map ({clip_diag.get('grid_shape', f'{actual_grid}x{actual_grid}')})"
         except Exception as e:
             import logging
             logging.warning(f"GeoRSCLIP grounding failed, falling back to spectral: {e}")
@@ -1591,7 +1597,40 @@ def analyze_change(
         )
     )
 
-    if mask2.shape != mask1.shape:
+    # Reproject mask2 onto mask1's shared geographic grid and CRS if georeferenced
+    if (
+        data1.get("is_georeferenced")
+        and data2.get("is_georeferenced")
+        and data1.get("transform")
+        and data2.get("transform")
+        and data1.get("crs")
+        and data2.get("crs")
+    ):
+        try:
+            src_transform = Affine(*data2["transform"][:6])
+            dst_transform = Affine(*data1["transform"][:6])
+            src_crs = data2["crs"]
+            dst_crs = data1["crs"]
+
+            reprojected_mask2 = np.zeros(mask1.shape, dtype=mask2.dtype)
+            rasterio.warp.reproject(
+                source=mask2,
+                destination=reprojected_mask2,
+                src_transform=src_transform,
+                src_crs=src_crs,
+                dst_transform=dst_transform,
+                dst_crs=dst_crs,
+                resampling=rasterio.warp.Resampling.nearest,
+            )
+            mask2 = reprojected_mask2
+        except Exception:
+            if mask2.shape != mask1.shape:
+                mask2 = cv2.resize(
+                    mask2,
+                    (mask1.shape[1], mask1.shape[0]),
+                    interpolation=cv2.INTER_NEAREST,
+                )
+    elif mask2.shape != mask1.shape:
         mask2 = cv2.resize(
             mask2,
             (
@@ -1664,6 +1703,7 @@ def analyze_change(
         "confidence": round(min(0.92, (conf1 + conf2) / 2.0), 2),
         "tool": f"Bi-temporal {feature} comparison ({method1} + {method2})",
         "overlay": overlay,
+        "delta_percentage_points": round(delta, 2),
         "evidence": {
             "before": evidence_before,
             "after": evidence_after,
@@ -2862,12 +2902,16 @@ def validate_pair_compatibility(
     ):
 
         if p["crs"] != s["crs"]:
-
-            warnings.append(
-                "CRS differs between inputs; "
-                "geospatial reprojection will be required "
-                "for spatial fusion."
-            )
+            try:
+                Transformer.from_crs(s["crs"], p["crs"], always_xy=True)
+                warnings.append(
+                    f"CRS differs between inputs ({s['crs']} vs {p['crs']}); "
+                    "geospatial reprojection will be applied for common-grid co-registration."
+                )
+            except Exception as e:
+                issues.append(
+                    f"Incompatible CRS projections cannot be reprojected ({s['crs']} to {p['crs']}): {e}"
+                )
 
     elif (
         p.get("crs")
@@ -3567,19 +3611,69 @@ def evaluate_bigearthnet_sample(req: BigEarthNetEvalRequest):
 # DYNAMIC AGENTIC TOOL HANDLERS (Module 6)
 # ============================================================
 
-def _handle_change_engine(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
+def _handle_input_validator(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
+    t0 = time.time()
     primary = ctx["primary"]
-    secondary = ctx["secondary"]
-    feature = ctx["feature"]
-    req = ctx["req"]
+    secondary = ctx.get("secondary")
+    p_name = primary["path"].name
+    p_georef = primary["data"].get("is_georeferenced", False)
+    s_name = secondary["path"].name if secondary else None
+    elapsed = round((time.time() - t0) * 1000, 2)
     ctx["trace"].append(
         {
-            "step": "Change Engine",
+            "step": "Input Validator",
             "status": "ok",
-            "detail": "Bi-temporal change specialist selected.",
+            "detail": f"Validated raster inputs. Primary: {p_name} (georeferenced: {p_georef}). Secondary: {s_name}",
+            "parameters": params,
+            "timing_ms": elapsed,
         }
     )
-    return analyze_change(
+    return {
+        "input_validation": {
+            "valid": True,
+            "primary": p_name,
+            "secondary": s_name,
+            "georeferenced": p_georef,
+        }
+    }
+
+
+def _handle_geospatial_tools(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
+    t0 = time.time()
+    primary = ctx["primary"]
+    data = primary["data"]
+    bounds = data.get("bounds_wgs84")
+    centroid = data.get("centroid_wgs84")
+    crs = data.get("crs")
+    res_m = get_pixel_resolution_meters(data)
+    elapsed = round((time.time() - t0) * 1000, 2)
+    ctx["trace"].append(
+        {
+            "step": "Geospatial Tools",
+            "status": "ok",
+            "detail": f"Deterministic GIS extraction completed. CRS: {crs or 'unprojected'}, Resolution: {res_m}m/px",
+            "parameters": params,
+            "timing_ms": elapsed,
+        }
+    )
+    return {
+        "geospatial_context": {
+            "crs": crs,
+            "bounds_wgs84": bounds,
+            "centroid_wgs84": centroid,
+            "pixel_resolution_meters": res_m,
+            "is_georeferenced": data.get("is_georeferenced", False),
+        }
+    }
+
+
+def _handle_change_engine(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
+    t0 = time.time()
+    primary = ctx["primary"]
+    secondary = ctx["secondary"]
+    feature = params.get("feature", ctx["feature"])
+    req = ctx["req"]
+    out = analyze_change(
         primary["path"],
         primary["data"],
         secondary["path"],
@@ -3587,37 +3681,53 @@ def _handle_change_engine(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
         feature,
         req.query,
     )
+    elapsed = round((time.time() - t0) * 1000, 2)
+    ctx["trace"].append(
+        {
+            "step": "Change Engine",
+            "status": "ok",
+            "detail": "Bi-temporal change specialist executed.",
+            "parameters": params,
+            "timing_ms": elapsed,
+        }
+    )
+    return out
 
 
 def _handle_optical_sar_fusion(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
+    t0 = time.time()
     primary = ctx["primary"]
     secondary = ctx["secondary"]
-    feature = ctx["feature"]
-    ctx["trace"].append(
-        {
-            "step": "Optical-SAR Fusion",
-            "status": "ok",
-            "detail": "SAR-aware optical-SAR fusion specialist selected.",
-        }
-    )
+    feature = params.get("feature", ctx["feature"])
+    feat = feature if feature not in {"auto", "scene", "multimodal", None} else "water"
     try:
-        return analyze_cross_modal(
+        out = analyze_cross_modal(
             primary["path"],
             primary["data"],
             secondary["path"],
             secondary["data"],
-            feature=(
-                feature
-                if feature not in {"auto", "scene", "multimodal", None}
-                else "water"
-            ),
+            feature=feat,
         )
+        elapsed = round((time.time() - t0) * 1000, 2)
+        ctx["trace"].append(
+            {
+                "step": "Optical-SAR Fusion",
+                "status": "ok",
+                "detail": "SAR-aware optical-SAR fusion specialist executed.",
+                "parameters": params,
+                "timing_ms": elapsed,
+            }
+        )
+        return out
     except ValueError as exc:
+        elapsed = round((time.time() - t0) * 1000, 2)
         ctx["trace"].append(
             {
                 "step": "Optical-SAR Fusion",
                 "status": "error",
                 "detail": str(exc),
+                "parameters": params,
+                "timing_ms": elapsed,
             }
         )
         raise HTTPException(
@@ -3627,14 +3737,8 @@ def _handle_optical_sar_fusion(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
 
 
 def _handle_land_cover_segmenter(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
+    t0 = time.time()
     primary = ctx["primary"]
-    ctx["trace"].append(
-        {
-            "step": "Land-Cover Segmenter",
-            "status": "ok",
-            "detail": "Multi-class false-colour segmentation: water / vegetation / buildings.",
-        }
-    )
     try:
         seg_overlay, seg_stats = segment_land_cover(
             primary["path"],
@@ -3678,6 +3782,17 @@ def _handle_land_cover_segmenter(ctx: Dict[str, Any], **params) -> Dict[str, Any
 
         classified_pct = float(water_pct + veg_pct + built_pct + desert_pct)
         dyn_conf = round(float(np.clip(0.72 + (classified_pct / 100.0) * 0.23, 0.72, 0.96)), 2)
+        elapsed = round((time.time() - t0) * 1000, 2)
+
+        ctx["trace"].append(
+            {
+                "step": "Land-Cover Segmenter",
+                "status": "ok",
+                "detail": "Multi-class false-colour segmentation completed.",
+                "parameters": params,
+                "timing_ms": elapsed,
+            }
+        )
 
         return {
             "task": "segmentation",
@@ -3698,11 +3813,14 @@ def _handle_land_cover_segmenter(ctx: Dict[str, Any], **params) -> Dict[str, Any
             "overlay": seg_fname,
         }
     except Exception as exc:
+        elapsed = round((time.time() - t0) * 1000, 2)
         ctx["trace"].append(
             {
                 "step": "Land-Cover Segmenter",
                 "status": "error",
                 "detail": str(exc),
+                "parameters": params,
+                "timing_ms": elapsed,
             }
         )
         raise HTTPException(
@@ -3712,27 +3830,38 @@ def _handle_land_cover_segmenter(ctx: Dict[str, Any], **params) -> Dict[str, Any
 
 
 def _handle_rs_grounding(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
+    t0 = time.time()
     primary = ctx["primary"]
     req = ctx["req"]
-    ctx["trace"].append(
-        {
-            "step": "RS Grounding",
-            "status": "ok",
-            "detail": "Hybrid remote-sensing grounding specialist selected.",
-        }
-    )
     try:
-        return analyze_grounding(
+        out = analyze_grounding(
             primary["path"],
             primary["data"],
             req.query,
+            grid_size=int(params.get("grid_size", 16)),
+            method=params.get("method"),
+            feature=params.get("feature"),
         )
+        elapsed = round((time.time() - t0) * 1000, 2)
+        ctx["trace"].append(
+            {
+                "step": "RS Grounding",
+                "status": "ok",
+                "detail": "Hybrid remote-sensing grounding specialist completed.",
+                "parameters": params,
+                "timing_ms": elapsed,
+            }
+        )
+        return out
     except Exception as exc:
+        elapsed = round((time.time() - t0) * 1000, 2)
         ctx["trace"].append(
             {
                 "step": "RS Grounding",
                 "status": "error",
                 "detail": str(exc),
+                "parameters": params,
+                "timing_ms": elapsed,
             }
         )
         raise HTTPException(
@@ -3742,29 +3871,35 @@ def _handle_rs_grounding(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
 
 
 def _handle_rs_captioner(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
+    t0 = time.time()
     primary = ctx["primary"]
-    feature = ctx["feature"]
+    feature = params.get("feature", ctx["feature"])
     req = ctx["req"]
-    ctx["trace"].append(
-        {
-            "step": "RS Captioner",
-            "status": "ok",
-            "detail": "Scene description specialist selected.",
-        }
-    )
-    return analyze_single(
+    out = analyze_single(
         primary["path"],
         primary["data"],
         feature,
         "captioning",
         req.query,
     )
+    elapsed = round((time.time() - t0) * 1000, 2)
+    ctx["trace"].append(
+        {
+            "step": "RS Captioner",
+            "status": "ok",
+            "detail": "Scene description specialist completed.",
+            "parameters": params,
+            "timing_ms": elapsed,
+        }
+    )
+    return out
 
 
 def _handle_rs_vqa(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
+    t0 = time.time()
     primary = ctx["primary"]
     secondary = ctx.get("secondary")
-    feature = ctx["feature"]
+    feature = params.get("feature", ctx["feature"])
     req = ctx["req"]
     if secondary:
         p_mod = infer_modality(primary["path"], primary["data"], primary.get("filename"))
@@ -3772,29 +3907,26 @@ def _handle_rs_vqa(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
         is_optical_sar = ({p_mod, s_mod} == {"optical", "sar"})
         feat = feature if feature not in {"auto", "scene", "multimodal", None} else "water"
         if is_optical_sar:
-            ctx["trace"].append(
-                {
-                    "step": "Optical-SAR Fusion",
-                    "status": "ok",
-                    "detail": "Cross-modal Optical-SAR fusion specialist selected for multimodal question.",
-                }
-            )
-            return analyze_cross_modal(
+            out = analyze_cross_modal(
                 primary["path"],
                 primary["data"],
                 secondary["path"],
                 secondary["data"],
                 feature=feat,
             )
-        else:
+            elapsed = round((time.time() - t0) * 1000, 2)
             ctx["trace"].append(
                 {
-                    "step": "Change Engine",
+                    "step": "Optical-SAR Fusion",
                     "status": "ok",
-                    "detail": "Bi-temporal change reasoning specialist selected for multi-image comparison.",
+                    "detail": "Cross-modal Optical-SAR fusion specialist selected for multimodal question.",
+                    "parameters": params,
+                    "timing_ms": elapsed,
                 }
             )
-            return analyze_change(
+            return out
+        else:
+            out = analyze_change(
                 primary["path"],
                 primary["data"],
                 secondary["path"],
@@ -3802,23 +3934,40 @@ def _handle_rs_vqa(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
                 feature=feat,
                 query=req.query,
             )
-    ctx["trace"].append(
-        {
-            "step": "RS-VQA",
-            "status": "ok",
-            "detail": "GeoRSCLIP + RSVQA Adapter selected.",
-        }
-    )
-    return analyze_single(
+            elapsed = round((time.time() - t0) * 1000, 2)
+            ctx["trace"].append(
+                {
+                    "step": "Change Engine",
+                    "status": "ok",
+                    "detail": "Bi-temporal change reasoning specialist selected for multi-image comparison.",
+                    "parameters": params,
+                    "timing_ms": elapsed,
+                }
+            )
+            return out
+    out = analyze_single(
         primary["path"],
         primary["data"],
         feature,
         "vqa",
         req.query,
     )
+    elapsed = round((time.time() - t0) * 1000, 2)
+    ctx["trace"].append(
+        {
+            "step": "RS-VQA",
+            "status": "ok",
+            "detail": "GeoRSCLIP + RSVQA Adapter executed.",
+            "parameters": params,
+            "timing_ms": elapsed,
+        }
+    )
+    return out
 
 
 # Register handlers in the dynamic registry
+register_handler("input_validator", _handle_input_validator)
+register_handler("geospatial_tools", _handle_geospatial_tools)
 register_handler("rs_vqa", _handle_rs_vqa)
 register_handler("rs_captioner", _handle_rs_captioner)
 register_handler("rs_grounding", _handle_rs_grounding)
@@ -3973,12 +4122,14 @@ def analyze(
         Dict[str, Any]
     ] = [
         {
-            "step": "Input Validator",
+            "step": "Input Ingestion",
             "status": "ok",
             "detail": (
                 f"Primary: "
                 f"{primary['filename']}"
             ),
+            "parameters": {},
+            "timing_ms": 0.1,
         },
         {
             "step": "Query Interpreter",
@@ -3987,6 +4138,8 @@ def analyze(
                 f"Task={task}; "
                 f"feature={feature}"
             ),
+            "parameters": {"query": req.query},
+            "timing_ms": 0.1,
         },
         {
             "step": "Agent Planner",
@@ -3996,6 +4149,8 @@ def analyze(
                 f"{len(plan.get('steps', []))} "
                 "execution steps"
             ),
+            "parameters": {"plan_steps": len(plan.get("steps", []))},
+            "timing_ms": 0.1,
         },
     ]
 
@@ -4045,14 +4200,25 @@ def analyze(
     for step in plan.get("steps", []):
         tool_name = step.get("tool")
         step_params = step.get("parameters", {})
-        if tool_name in {"input_validator", "geospatial_tools", "result_integrator"}:
+        if tool_name == "result_integrator":
             continue
         if has_handler(tool_name):
+            t_start = time.time()
             step_output = execute_tool(tool_name, context, step_params)
+            t_elapsed_ms = round((time.time() - t_start) * 1000, 2)
+            step["timing_ms"] = t_elapsed_ms
+            step["parameters"] = step_params
             if isinstance(step_output, dict):
                 result.update(step_output)
-                specialist_executed = True
-            break
+                if tool_name in {
+                    "rs_vqa",
+                    "rs_captioner",
+                    "rs_grounding",
+                    "change_engine",
+                    "optical_sar_fusion",
+                    "land_cover_segmenter",
+                }:
+                    specialist_executed = True
 
     # Fallback to direct planned task execution if step dispatch missed
     if not specialist_executed:

@@ -48,6 +48,7 @@ Thumbs.db
 .pytest_cache/
 .coverage
 
-# Logs
+# Logs & Temporary Testing
 logs/
 *.log
+data/scratch_test/

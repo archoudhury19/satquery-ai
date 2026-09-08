@@ -241,8 +241,20 @@ def _read_raster(
                 in src.descriptions
             ]
 
+            # Resolve spectral bands dynamically using band descriptions or sensor ordering
+            def _find_band_num(keys, default_idx):
+                for idx, desc in enumerate(descriptions, start=1):
+                    d = desc.lower().replace("_", " ").replace("-", " ")
+                    if any(k in d for k in keys):
+                        return idx
+                return default_idx if default_idx <= count else 1
+
+            r_idx = _find_band_num(["red", "b04", "b4", "band 4", "band4"], 1 if count < 5 else (4 if count >= 7 else 1))
+            g_idx = _find_band_num(["green", "b03", "b3", "band 3", "band3"], 2 if count < 5 else (3 if count >= 7 else 2))
+            b_idx = _find_band_num(["blue", "b02", "b2", "band 2", "band2"], 3 if count < 5 else (2 if count >= 7 else 3))
+
             if count >= 3:
-                raw_bands = src.read([1, 2, 3])
+                raw_bands = src.read([r_idx, g_idx, b_idx])
                 # If raster is uint8, preserve exact radiometric RGB values without distorting color balance
                 if src.dtypes[0] == 'uint8':
                     rgb = np.moveaxis(raw_bands, 0, -1).astype(np.uint8)
@@ -270,13 +282,16 @@ def _read_raster(
 
             bands_dict = {}
             if count >= 4:
-                bands_dict["red"] = src.read(1)
-                bands_dict["green"] = src.read(2)
-                bands_dict["blue"] = src.read(3)
-                bands_dict["nir"] = src.read(4)
+                nir_idx = _find_band_num(["nir", "near infrared", "b08", "b8", "b8a", "band 5", "band 8"], 4 if count < 5 else (5 if count >= 7 else 4))
+                bands_dict["red"] = src.read(r_idx)
+                bands_dict["green"] = src.read(g_idx)
+                bands_dict["blue"] = src.read(b_idx)
+                bands_dict["nir"] = src.read(nir_idx)
                 if count >= 6:
-                    bands_dict["swir1"] = src.read(5)
-                    bands_dict["swir2"] = src.read(6)
+                    swir1_idx = _find_band_num(["swir1", "swir 1", "b11", "band 6", "band 11"], 5 if count < 7 else 6)
+                    swir2_idx = _find_band_num(["swir2", "swir 2", "b12", "band 7", "band 12"], 6 if count < 7 else 7)
+                    bands_dict["swir1"] = src.read(swir1_idx)
+                    bands_dict["swir2"] = src.read(swir2_idx)
 
             bounds_wgs84 = None
             centroid_wgs84 = None
@@ -1713,13 +1728,27 @@ def infer_modality(
     if any(token in filename_text for token in sar_tokens):
         return "sar"
 
-    # Single-band high-dynamic range or float32 GeoTIFF
+    # Single-band GeoTIFF: Disambiguate SAR backscatter vs Panchromatic Optical
     if path.suffix.lower() in {".tif", ".tiff"} and count == 1 and is_float_or_u16:
-        # Check pixel values if possible: SAR backscatter in dB typically has negative values
-        if "rgb" in data and data["rgb"] is not None:
-            # If the raw band was preserved or can be inspected
+        try:
+            with rasterio.open(path) as src:
+                # Read small subsample to inspect statistical and radiometric distribution
+                sample = src.read(1, out_shape=(min(src.height, 128), min(src.width, 128)))
+                finite = sample[np.isfinite(sample)]
+                if len(finite) > 50:
+                    # 1. Calibrated radar backscatter (dB) has negative values
+                    if (finite < 0.0).any():
+                        return "sar"
+                    # 2. Raw SAR amplitude/intensity exhibits multiplicative speckle noise
+                    # where coefficient of variation (std / mean) is high (> 0.65)
+                    m = float(np.mean(finite))
+                    v = float(np.var(finite))
+                    if m > 0 and (v / (m * m)) > 0.65:
+                        return "sar"
+        except Exception:
             pass
-        return "sar"
+        # Default single-band raster without radar characteristics to Panchromatic Optical
+        return "optical"
 
     return "optical"
 

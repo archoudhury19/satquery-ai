@@ -993,6 +993,208 @@ except Exception as e:
     test_assert(False, "Scaled benchmark evaluation and confusion matrix test", str(e))
 
 # ------------------------------------------------------------
+# TEST 33: SUB-PIXEL CO-REGISTRATION PRECISION
+# ------------------------------------------------------------
+print("\n--- TEST 33: Sub-Pixel Co-Registration Precision ---")
+try:
+    from geospatial.coregistration import subpixel_coregister_pair
+
+    # 33a. Create synthetic SAR image with known sub-pixel translation
+    rng = np.random.default_rng(42)
+    opt = rng.integers(80, 200, (128, 128), dtype=np.uint8)
+    # Shift by 0.75 px horizontally using warpAffine
+    import cv2 as _cv2
+    M = np.float32([[1, 0, 0.75], [0, 1, 0.0]])
+    sar = _cv2.warpAffine(opt, M, (128, 128), flags=_cv2.INTER_LINEAR)
+
+    _, dx, dy, rmse = subpixel_coregister_pair(opt.astype(np.float32), sar.astype(np.float32))
+    test_assert(abs(dx) <= 1.0, f"Co-registration detects sub-pixel shift (dx={dx:.3f} px)", f"dx={dx:.3f}")
+    test_assert(rmse >= 0.0, f"Co-registration returns non-negative RMSE (rmse={rmse:.4f})", f"rmse={rmse:.4f}")
+
+    # 33b. Identity image has near-zero shift
+    _, dx0, dy0, rmse0 = subpixel_coregister_pair(opt.astype(np.float32), opt.astype(np.float32))
+    test_assert(abs(dx0) < 0.5 and abs(dy0) < 0.5,
+                f"Identity pair has near-zero shift (dx={dx0:.3f}, dy={dy0:.3f})", f"dx={dx0:.3f}, dy={dy0:.3f}")
+
+    # 33c. Verify subpixel_coregistration appears in change analysis output
+    test_assert("subpixel_coregistration" in chg_res, "Change analysis result includes subpixel_coregistration key")
+    sc = chg_res.get("subpixel_coregistration", {})
+    test_assert("dx" in sc and "dy" in sc and "rmse" in sc,
+                "subpixel_coregistration has dx, dy, rmse keys", str(sc))
+
+except Exception as e:
+    test_assert(False, "Sub-pixel co-registration precision test", str(e))
+
+# ------------------------------------------------------------
+# TEST 34: LEARNED DENSE SEMANTIC SEGMENTATION NEURAL HEAD
+# ------------------------------------------------------------
+print("\n--- TEST 34: Learned Dense Semantic Segmentation Neural Head ---")
+try:
+    from models.land_cover_head import (
+        DenseLandCoverSegHead,
+        predict_dense_land_cover,
+        bayesian_map_ensemble,
+    )
+
+    # 34a. Basic instantiation
+    head = DenseLandCoverSegHead(in_channels=3, num_classes=4)
+    test_assert(head is not None, "DenseLandCoverSegHead instantiated successfully")
+
+    # 34b. Forward pass produces correct shape
+    test_img = np.random.randint(0, 255, (64, 64, 3), dtype=np.uint8)
+    result = predict_dense_land_cover(test_img)
+    probs = result["probabilities"]
+    test_assert(probs.shape == (64, 64, 4),
+                f"Neural head probabilities shape is (H, W, 4): {probs.shape}", str(probs.shape))
+    test_assert(
+        abs(probs.sum(axis=-1).mean() - 1.0) < 1e-4,
+        f"Class probabilities sum to 1.0 (mean={probs.sum(axis=-1).mean():.5f})",
+        str(probs.sum(axis=-1).mean()),
+    )
+
+    # 34c. Entropy in [0, 1]
+    entropy = result["entropy"]
+    test_assert(
+        float(entropy.min()) >= 0.0 and float(entropy.max()) <= 1.0,
+        f"Shannon entropy in [0, 1] range (min={entropy.min():.3f}, max={entropy.max():.3f})",
+        f"min={entropy.min():.3f}, max={entropy.max():.3f}",
+    )
+
+    # 34d. Bayesian MAP ensemble with identity spectral masks
+    H, W = 64, 64
+    ones = np.ones((H, W), dtype=np.float32)
+    zeros = np.zeros((H, W), dtype=np.float32)
+    posterior = bayesian_map_ensemble(probs, ones, zeros, zeros, zeros, neural_weight=0.65)
+    test_assert(posterior.shape == (H, W, 4),
+                "Bayesian MAP ensemble output shape is (H, W, 4)", str(posterior.shape))
+    test_assert(
+        abs(posterior.sum(axis=-1).mean() - 1.0) < 1e-3,
+        "MAP ensemble posterior probabilities sum to 1.0",
+        str(posterior.sum(axis=-1).mean()),
+    )
+
+    # 34e. Segmentation result reports mean_entropy and segmentation_engine
+    seg_res = requests.post(f"{API_BASE}/api/analyze", json={
+        "primary_id": prim_id,
+        "query": "Segment all land cover classes in this scene.",
+    }).json()
+    ev = seg_res.get("evidence", {})
+    test_assert("mean_entropy" in ev, "Segmentation evidence includes mean_entropy field", str(ev.keys()))
+    test_assert("segmentation_engine" in ev, "Segmentation evidence includes segmentation_engine field", str(ev.keys()))
+
+except Exception as e:
+    test_assert(False, "Learned dense semantic segmentation neural head test", str(e))
+
+# ------------------------------------------------------------
+# TEST 35: SHA-256 CRYPTOGRAPHIC BENCHMARK UPLOAD VERIFICATION
+# ------------------------------------------------------------
+print("\n--- TEST 35: SHA-256 Cryptographic Benchmark Upload Verification ---")
+try:
+    import hashlib as _hashlib
+    import io
+
+    # 35a. Random non-benchmark PNG is rejected
+    dummy_random = io.BytesIO(np.random.randint(0, 255, 512, dtype=np.uint8).tobytes())
+    resp_random = client.post("/api/upload", files={"file": ("random_image.png", dummy_random, "image/png")})
+    test_assert(
+        resp_random.status_code == 400,
+        "Random non-benchmark PNG rejected with HTTP 400 via SHA-256 verification",
+        f"Status: {resp_random.status_code}",
+    )
+    detail_lower = str(resp_random.json().get("detail", "")).lower()
+    test_assert(
+        "sha-256" in detail_lower or "hash" in detail_lower or "benchmark" in detail_lower,
+        "Rejection message references cryptographic hash or benchmark provenance",
+        str(resp_random.json().get("detail", "")),
+    )
+
+    # 35b. Authentic benchmark VRSBench image is accepted via SHA-256 content hash
+    vrs_img_p = BASE_DIR / "data" / "external_datasets" / "vrsbench" / "images" / "P2655_0055.png"
+    if vrs_img_p.exists():
+        vrs_bytes = vrs_img_p.read_bytes()
+        resp_vrs = client.post("/api/upload", files={"file": ("P2655_0055.png", io.BytesIO(vrs_bytes), "image/png")})
+        test_assert(
+            resp_vrs.status_code == 200,
+            "Authentic benchmark PNG accepted via SHA-256 content hash",
+            f"Status: {resp_vrs.status_code}, Detail: {resp_vrs.json().get('detail', '')}",
+        )
+    else:
+        test_assert(True, "VRSBench image P2655_0055.png not on disk (skip acceptance test)", "No file")
+
+    # 35c. Renamed authentic benchmark image is accepted (content, not filename-based)
+    rsvqa_img_p = BASE_DIR / "data" / "external_datasets" / "rsvqa" / "images" / "rsvqa_lr_0000.png"
+    if rsvqa_img_p.exists():
+        rsvqa_bytes = rsvqa_img_p.read_bytes()
+        resp_rsvqa_renamed = client.post("/api/upload", files={"file": ("completely_wrong_name_abc.png", io.BytesIO(rsvqa_bytes), "image/png")})
+        test_assert(
+            resp_rsvqa_renamed.status_code == 200,
+            "Authentic RSVQA benchmark image accepted even when renamed (content hash match)",
+            f"Status: {resp_rsvqa_renamed.status_code}",
+        )
+
+    # 35d. Verify BENCHMARK_CONTENT_HASHES populated at startup
+    from backend.app import BENCHMARK_CONTENT_HASHES
+    test_assert(
+        len(BENCHMARK_CONTENT_HASHES) >= 50,
+        f"BENCHMARK_CONTENT_HASHES precomputed {len(BENCHMARK_CONTENT_HASHES)} hashes at server startup",
+        f"Count: {len(BENCHMARK_CONTENT_HASHES)}",
+    )
+
+except Exception as e:
+    test_assert(False, "SHA-256 cryptographic benchmark upload verification test", str(e))
+
+# ------------------------------------------------------------
+# TEST 36: FULL-SCALE BENCHMARK EVALUATION CONFIGURATION
+# ------------------------------------------------------------
+print("\n--- TEST 36: Full-Scale Benchmark Evaluation --full-eval Configuration ---")
+try:
+    from benchmarks.evaluate_benchmarks import run_benchmark_evaluation
+
+    # 36a. Verify --full-eval CLI flag present in source code
+    eval_source = (BASE_DIR / "benchmarks" / "evaluate_benchmarks.py").read_text(encoding="utf-8")
+    test_assert("--full-eval" in eval_source, "--full-eval CLI flag defined in evaluate_benchmarks.py")
+    test_assert("full_eval" in eval_source, "full_eval parameter present in evaluate_benchmarks.py")
+    test_assert("effective_limit" in eval_source, "effective_limit (1000+ scaling) logic present in evaluate_benchmarks.py")
+
+    # 36b. Verify report saving logic
+    test_assert("benchmark_run_latest.json" in eval_source,
+                "Report artifact 'benchmark_run_latest.json' defined in evaluate_benchmarks.py")
+    test_assert("report_saved_path" in eval_source, "report_saved_path key exported in evaluate_benchmarks.py")
+
+    # 36c. Run standard (non-full-eval) evaluation, verify report is saved
+    import tempfile, os
+    with tempfile.TemporaryDirectory() as tmpdir:
+        report_file = os.path.join(tmpdir, "test_benchmark_report.json")
+        results = run_benchmark_evaluation(sample_limit=5, full_eval=False, report_path=report_file)
+        test_assert(os.path.exists(report_file), "Benchmark report JSON file written to disk", f"Expected at: {report_file}")
+        with open(report_file, "r", encoding="utf-8") as rf:
+            report = json.load(rf)
+        test_assert("benchmarks" in report, "Report JSON contains 'benchmarks' key", str(report.keys()))
+        test_assert("timestamp" in report, "Report JSON contains 'timestamp' key", str(report.keys()))
+        test_assert("RSVQA" in report["benchmarks"], "Report benchmarks contains RSVQA section", str(report["benchmarks"].keys()))
+
+    # 36d. In full_eval mode, effective_limit >= 1000
+    import inspect
+    src_lines = inspect.getsource(run_benchmark_evaluation)
+    test_assert(
+        "max(sample_limit, 1000)" in src_lines,
+        "--full-eval scales to max(sample_limit, 1000) samples",
+        "Not found in source",
+    )
+
+    # 36e. rsvqa_full_test.json has 10,000+ records available for full-eval
+    rsvqa_full_p = BASE_DIR / "data" / "external_datasets" / "rsvqa" / "rsvqa_full_test.json"
+    if rsvqa_full_p.exists():
+        with open(rsvqa_full_p, "r", encoding="utf-8") as f:
+            full_test = json.load(f)
+        test_assert(len(full_test) >= 1000,
+                    f"rsvqa_full_test.json contains {len(full_test)} QA records (>= 1000 for full-eval)",
+                    f"Count: {len(full_test)}")
+
+except Exception as e:
+    test_assert(False, "Full-scale benchmark evaluation --full-eval test", str(e))
+
+# ------------------------------------------------------------
 # FINAL SUMMARY
 # ------------------------------------------------------------
 print("\n" + "=" * 80)

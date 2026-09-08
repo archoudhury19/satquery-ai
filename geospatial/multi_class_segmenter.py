@@ -91,10 +91,35 @@ def segment_land_cover(
     # Desert / Sand Dunes: warm golden-yellow reflectance (high Red & Green, low Blue)
     desert_binary = (r > 95) & (g > 75) & (r >= b + 6) & (~water_binary) & (~veg_binary)
 
-    # ----------------------------------------- priority: water > veg > built > desert
-    veg_binary    = veg_binary    & ~water_binary
-    built_binary  = built_binary  & ~water_binary & ~veg_binary & ~desert_binary
-    desert_binary = desert_binary & ~water_binary & ~veg_binary
+    # ----------------------------------------- Learned Dense Neural Head + Bayesian MAP
+    mean_entropy = 0.0
+    try:
+        from models.land_cover_head import predict_dense_land_cover, bayesian_map_ensemble
+        neural_res = predict_dense_land_cover(rgb)
+        neural_probs = neural_res["probabilities"]
+        mean_entropy = neural_res.get("mean_entropy", 0.0)
+
+        posterior_probs = bayesian_map_ensemble(
+            neural_probs,
+            water_binary.astype(np.float32),
+            veg_binary.astype(np.float32),
+            built_binary.astype(np.float32),
+            desert_binary.astype(np.float32),
+            neural_weight=0.65,
+        )
+        map_labels = np.argmax(posterior_probs, axis=-1)
+        # Class masks from Bayesian MAP posterior
+        water_binary = (map_labels == 0)
+        veg_binary = (map_labels == 1)
+        built_binary = (map_labels == 2)
+        desert_binary = (map_labels == 3)
+        segmentation_engine = "DenseLandCoverSegHead (Learned CNN + Bayesian Spectral MAP)"
+    except Exception as exc:
+        segmentation_engine = f"Rule-based Spectral Fallback ({exc})"
+        # Priority fallback: water > veg > built > desert
+        veg_binary    = veg_binary    & ~water_binary
+        built_binary  = built_binary  & ~water_binary & ~veg_binary & ~desert_binary
+        desert_binary = desert_binary & ~water_binary & ~veg_binary
 
     overlay = rgb.copy().astype(np.float32)
 
@@ -120,6 +145,8 @@ def segment_land_cover(
     desert_count = int(desert_binary.sum())
     stats = {
         "total_pixels": int(total),
+        "mean_entropy": float(mean_entropy),
+        "segmentation_engine": segmentation_engine,
         "water": {
             "pixels": int(water_binary.sum()),
             "percent": round(100.0 * water_binary.sum() / total, 2),
@@ -138,10 +165,10 @@ def segment_land_cover(
         "desert": {
             "pixels": desert_count,
             "percent": round(100.0 * desert_count / total, 2),
-            "method": "Radiometric Sand/Dune Threshold",
+            "method": "Radiometric Sand/Dune + Neural Prob",
         },
         "unclassified": {
-            "pixels": int(total - water_binary.sum() - veg_binary.sum() - built_binary.sum() - desert_count),
+            "pixels": int(max(0, total - water_binary.sum() - veg_binary.sum() - built_binary.sum() - desert_count)),
             "percent": round(
                 100.0 * max(0, total - water_binary.sum() - veg_binary.sum() - built_binary.sum() - desert_count) / total,
                 2,

@@ -37,8 +37,10 @@ from geospatial.multi_class_segmenter import segment_land_cover
 from geospatial.clip_segmenter import segment_with_clip
 from geospatial.clip_grounding import ground_with_clip
 from geospatial.scene_captioner import generate_rs_caption
+from geospatial.coregistration import subpixel_coregister_pair
 
 __all__ = [
+    "subpixel_coregister_pair",
     "detect_remote_sensing_water",
     "detect_spectral_water",
     "detect_rgb_water",

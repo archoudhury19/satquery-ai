@@ -272,6 +272,72 @@ except Exception as e:
     test_assert(False, "Error handling test", str(e))
 
 # ------------------------------------------------------------
+# TEST 9: RS-VLM VISUAL GROUNDING HONESTY (ZERO FAKE FALLBACKS)
+# ------------------------------------------------------------
+print("\n--- TEST 9: Visual Grounding Honesty ---")
+try:
+    from models.rs_vlm import RemoteSensingVLM
+    vlm_inst = RemoteSensingVLM()
+    test_img_path = BASE_DIR / "demo_data" / "bitemporal" / "s2_paradise_prefire.tif"
+    if not test_img_path.exists():
+        test_img_path = BASE_DIR / "demo_data" / "vrsbench" / "vrsbench_sample_01.tif"
+
+    # Query for an object completely absent from a forest/rural image (e.g., supersonic commercial supersonic Concorde jet)
+    grd_honesty = vlm_inst.ground(test_img_path, "supersonic commercial passenger jet aircraft parked on tarmac")
+    
+    # Verify that the system does NOT synthesize a fake center box
+    test_assert(grd_honesty.get("bounding_box") is None, "Non-existent object returns bbox=None (no fake center box)", str(grd_honesty.get("bounding_box")))
+    test_assert(grd_honesty.get("location") == "unlocalized", "Location marked unlocalized", str(grd_honesty.get("location")))
+    test_assert("no distinct region" in grd_honesty.get("answer", "").lower(), "Answer honestly indicates feature was not localized", grd_honesty.get("answer", ""))
+    test_assert(grd_honesty.get("confidence", 1.0) <= 0.50, "Confidence is low for absent target", str(grd_honesty.get("confidence")))
+
+except Exception as e:
+    test_assert(False, "Visual grounding honesty test", str(e))
+
+# ------------------------------------------------------------
+# TEST 10: DYNAMIC MULTI-CLASS SEGMENTATION CONFIDENCE
+# ------------------------------------------------------------
+print("\n--- TEST 10: Dynamic Land-Cover Segmentation Confidence ---")
+try:
+    seg_check = requests.post(f"{API_BASE}/api/analyze", json={
+        "primary_id": prim_id,
+        "query": "Segment all land cover classes in this scene."
+    }).json()
+
+    seg_conf = seg_check.get("confidence")
+    test_assert(seg_conf != 0.88, "Segmentation confidence is dynamic (not hardcoded 0.88)", f"Got: {seg_conf}")
+    test_assert(0.70 <= seg_conf <= 0.98, "Segmentation confidence in valid calibrated range", f"Got: {seg_conf}")
+
+    # Check that confidence scales with classified coverage
+    ev = seg_check.get("evidence", {})
+    w = ev.get("water_percent", 0)
+    v = ev.get("vegetation_percent", 0)
+    b = ev.get("built_up_percent", 0)
+    d = ev.get("desert_percent", 0)
+    expected_conf = round(float(np.clip(0.72 + ((w + v + b + d) / 100.0) * 0.23, 0.72, 0.96)), 2)
+    test_assert(abs(seg_conf - expected_conf) < 0.02, "Segmentation confidence strictly matches dynamic formula", f"Expected {expected_conf}, got {seg_conf}")
+
+except Exception as e:
+    test_assert(False, "Dynamic segmentation confidence test", str(e))
+
+# ------------------------------------------------------------
+# TEST 11: STATIC UI TELEMETRY AUDIT
+# ------------------------------------------------------------
+print("\n--- TEST 11: Static UI Telemetry Audit ---")
+try:
+    html_path = BASE_DIR / "frontend" / "index.html"
+    with open(html_path, "r", encoding="utf-8") as f:
+        html_content = f.read()
+
+    test_assert("94.87 ha" not in html_content, "Zero hardcoded 94.87 ha area in index.html", "Found in index.html" if "94.87 ha" in html_content else "Clean")
+    test_assert("22.568° N" not in html_content, "Zero hardcoded Kolkata coordinates in index.html", "Found in index.html" if "22.568° N" in html_content else "Clean")
+    test_assert("[0, 0, 240, 349]" not in html_content, "Zero hardcoded bounding box in index.html", "Found in index.html" if "[0, 0, 240, 349]" in html_content else "Clean")
+    test_assert("initOrUpdateChart(1.3, 1.4, 80.9, 16.4)" not in html_content, "Zero hardcoded initial chart values in index.html", "Found in index.html" if "initOrUpdateChart(1.3, 1.4, 80.9, 16.4)" in html_content else "Clean")
+
+except Exception as e:
+    test_assert(False, "Static UI telemetry audit", str(e))
+
+# ------------------------------------------------------------
 # FINAL SUMMARY
 # ------------------------------------------------------------
 print("\n" + "=" * 80)

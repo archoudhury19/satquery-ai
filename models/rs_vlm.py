@@ -797,7 +797,7 @@ class RemoteSensingVLM:
                     ]
                     return {
                         "answer": chosen,
-                        "confidence": max(conf, 0.78),
+                        "confidence": conf,
                         "model": "GeoRSCLIP Open-Vocabulary Zero-Shot Matcher",
                         "top_answers": top_answers,
                         "question": question,
@@ -829,7 +829,7 @@ class RemoteSensingVLM:
                 ]
                 return {
                     "answer": best_cat,
-                    "confidence": max(conf, 0.82),
+                    "confidence": conf,
                     "model": "GeoRSCLIP Multimodal Zero-Shot Classifier",
                     "top_answers": top_answers,
                     "question": question,
@@ -855,7 +855,7 @@ class RemoteSensingVLM:
                     conf = round(float(probs[0 if is_present else 1].item()), 3)
                     return {
                         "answer": ans,
-                        "confidence": max(conf, 0.75),
+                        "confidence": conf,
                         "model": "GeoRSCLIP Semantic Presence Verifier",
                         "top_answers": [{"answer": ans, "confidence": conf}],
                         "question": question,
@@ -1027,16 +1027,20 @@ class RemoteSensingVLM:
         data_dict = {"rgb": rgb_np}
         mask, bbox, conf, diag = ground_with_clip(data_dict, text, self)
 
-        if bbox is not None:
-            x1, y1, x2, y2 = bbox["x1"], bbox["y1"], bbox["x2"], bbox["y2"]
-            confidence = conf
-        else:
-            # Fallback to central region if no strong activation
-            x1 = int(image_width * 0.25)
-            y1 = int(image_height * 0.25)
-            x2 = int(image_width * 0.75)
-            y2 = int(image_height * 0.75)
-            confidence = 0.65
+        if bbox is None:
+            return {
+                "answer": f"No distinct region matching '{text}' could be detected with sufficient confidence in this satellite image.",
+                "confidence": round(float(min(conf, 0.45)), 2),
+                "model": "GeoRSCLIP Dense Text-Guided Grounding",
+                "bounding_box": None,
+                "location": "unlocalized",
+                "overlay": None,
+                "text": text,
+                "top_regions": [],
+            }
+
+        x1, y1, x2, y2 = bbox["x1"], bbox["y1"], bbox["x2"], bbox["y2"]
+        confidence = conf
 
         # ----------------------------------------------------
         # Location determination

@@ -96,6 +96,40 @@ def ground_with_clip(
         txt_feats = txt_feats / (txt_feats.norm(dim=-1, keepdim=True) + 1e-8)
         query_emb = txt_feats.mean(dim=0, keepdim=True)  # (1, D)
 
+    # Check target presence vs empty landscape / baseline absence
+    cand_texts = [
+        f"satellite view with {target_phrase}",
+        f"satellite view with no {target_phrase}, empty landscape"
+    ]
+    with torch.no_grad():
+        t_tokens = tokenizer(cand_texts).to(device)
+        t_embs = model.encode_text(t_tokens).float()
+        t_embs = t_embs / t_embs.norm(dim=-1, keepdim=True)
+
+        full_pil = Image.fromarray(rgb_raw)
+        full_tensor = preprocess(full_pil).unsqueeze(0).to(device)
+        full_feat = model.encode_image(full_tensor).float()
+        full_feat = full_feat / full_feat.norm(dim=-1, keepdim=True)
+
+        pres_sims = (full_feat @ t_embs.T).squeeze(0)
+        is_target_present = bool(pres_sims[0] > pres_sims[1])
+        target_score = float(pres_sims[0].item())
+
+    # If the target is physically absent from the satellite scene, do not synthesize a bounding box
+    if not is_target_present:
+        low_conf = round(float(np.clip(target_score, 0.15, 0.45)), 2)
+        return (
+            np.zeros((H, W), dtype=np.uint8),
+            None,
+            low_conf,
+            {
+                "target_phrase": target_phrase,
+                "detected": False,
+                "raw_peak_similarity": round(target_score, 4),
+                "grounded_area_pixels": 0,
+            },
+        )
+
     # Contrast enhance for ViT visual tokens
     rgb_enhanced = _enhance_satellite_rgb(rgb_raw)
 
@@ -147,8 +181,8 @@ def ground_with_clip(
     else:
         norm_heat = np.zeros_like(heat_map)
 
-    # Adaptive Thresholding: Top 25% activation
-    thresh_val = max(0.55, float(np.percentile(norm_heat, 75)))
+    # Adaptive Thresholding: Top activation cluster
+    thresh_val = max(0.60, float(np.percentile(norm_heat, 80)))
     binary_mask = (norm_heat >= thresh_val).astype(np.uint8) * 255
     binary_mask = cv2.morphologyEx(binary_mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
     binary_mask = cv2.morphologyEx(binary_mask, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
@@ -161,7 +195,7 @@ def ground_with_clip(
     if num_labels > 1:
         for idx in range(1, num_labels):
             area = stats[idx, cv2.CC_STAT_AREA]
-            if area > best_area:
+            if area > best_area and area >= 16:
                 best_area = area
                 x = int(stats[idx, cv2.CC_STAT_LEFT])
                 y = int(stats[idx, cv2.CC_STAT_TOP])
@@ -169,14 +203,14 @@ def ground_with_clip(
                 h = int(stats[idx, cv2.CC_STAT_HEIGHT])
                 bounding_box = {"x1": x, "y1": y, "x2": min(W, x + w), "y2": min(H, y + h)}
 
-    peak_conf = float(np.max(norm_heat)) if norm_heat.size else 0.5
-    conf_scaled = round(float(np.clip(0.70 + (max_val * 0.25), 0.70, 0.98)), 2)
+    conf_scaled = round(float(np.clip(0.68 + (max_val * 0.28), 0.50, 0.98)), 2)
 
     diagnostics = {
         "target_phrase": target_phrase,
         "window_size": f"{win_size}x{win_size}",
         "raw_peak_similarity": round(float(max_val), 4),
         "grounded_area_pixels": int(best_area),
+        "detected": bounding_box is not None,
     }
 
     return binary_mask, bounding_box, conf_scaled, diagnostics

@@ -773,7 +773,7 @@
     <div class="upload-bar">
       <label class="file-chip" for="primaryFile">
         <span class="file-label">Primary (Optical / T1):</span>
-        <span class="file-val" id="primaryMeta">vrsbench_sample_01.tif (512×512)</span>
+        <span class="file-val" id="primaryMeta">None (Select Demo or Upload)</span>
         <input id="primaryFile" type="file" accept=".tif,.tiff,.png,.jpg,.jpeg"/>
       </label>
       <label class="file-chip" for="secondaryFile">
@@ -790,26 +790,26 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 22s-8-4.5-8-11.8A8 8 0 0 1 12 2a8 8 0 0 1 8 8.2c0 7.3-8 11.8-8 11.8z"/><circle cx="12" cy="10" r="3"/></svg>
           Live Spatial Evidence &amp; Radiometric Metrics
         </span>
-        <span id="evidenceBadge" style="font-family: var(--font-mono); font-size: 10.5px; color: var(--emerald); background: var(--emerald-dim); border: 1px solid rgba(16,185,129,0.3); padding: 2px 8px; border-radius: 4px;">Telemetry Active</span>
+        <span id="evidenceBadge" style="font-family: var(--font-mono); font-size: 10.5px; color: var(--text-dim); background: rgba(255,255,255,0.05); border: 1px solid var(--panel-border); padding: 2px 8px; border-radius: 4px;">Awaiting Query</span>
       </div>
 
       <!-- Quick Metrics Grid -->
       <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
         <div style="background: rgba(9, 13, 22, 0.6); border: 1px solid var(--panel-border); border-radius: 8px; padding: 8px 10px;">
           <div style="font-size: 10px; color: var(--text-dim); text-transform: uppercase; font-weight: 600;">Area (ha)</div>
-          <div id="liveAreaVal" style="font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: #FFF; margin-top: 2px;">94.87 ha</div>
+          <div id="liveAreaVal" style="font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: #FFF; margin-top: 2px;">--</div>
         </div>
         <div style="background: rgba(9, 13, 22, 0.6); border: 1px solid var(--panel-border); border-radius: 8px; padding: 8px 10px;">
           <div style="font-size: 10px; color: var(--text-dim); text-transform: uppercase; font-weight: 600;">Confidence</div>
-          <div id="liveConfVal" style="font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--emerald); margin-top: 2px;">92%</div>
+          <div id="liveConfVal" style="font-family: var(--font-mono); font-size: 13px; font-weight: 700; color: var(--emerald); margin-top: 2px;">--</div>
         </div>
         <div style="background: rgba(9, 13, 22, 0.6); border: 1px solid var(--panel-border); border-radius: 8px; padding: 8px 10px;">
           <div style="font-size: 10px; color: var(--text-dim); text-transform: uppercase; font-weight: 600;">Task Router</div>
-          <div id="liveTaskVal" style="font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--accent); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Captioning</div>
+          <div id="liveTaskVal" style="font-family: var(--font-mono); font-size: 11px; font-weight: 700; color: var(--accent); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Ready</div>
         </div>
         <div style="background: rgba(9, 13, 22, 0.6); border: 1px solid var(--panel-border); border-radius: 8px; padding: 8px 10px;">
           <div style="font-size: 10px; color: var(--text-dim); text-transform: uppercase; font-weight: 600;">Centroid (WGS84)</div>
-          <div id="liveCentroidVal" style="font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: #E2E8F0; margin-top: 4px;">22.56° N, 88.34° E</div>
+          <div id="liveCentroidVal" style="font-family: var(--font-mono); font-size: 11px; font-weight: 600; color: #E2E8F0; margin-top: 4px;">--</div>
         </div>
       </div>
 
@@ -817,23 +817,23 @@
       <div id="landCoverSection" style="background: rgba(9, 13, 22, 0.6); border: 1px solid var(--panel-border); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;">
         <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); font-weight: 600;">
           <span>Land-Cover Distribution</span>
-          <span id="landCoverSummary" style="font-family: var(--font-mono); color: var(--text-dim);">Multi-Spectral AI Scan</span>
+          <span id="landCoverSummary" style="font-family: var(--font-mono); color: var(--text-dim);">Awaiting Scan</span>
         </div>
         
         <!-- Multi-segment visual bar -->
         <div style="height: 8px; width: 100%; background: #1E293B; border-radius: 999px; overflow: hidden; display: flex;">
-          <div id="barBuilt" style="width: 80.9%; background: #DC5A28; transition: width 0.3s;" title="Built-up"></div>
-          <div id="barVeg" style="width: 1.4%; background: #10B981; transition: width 0.3s;" title="Vegetation"></div>
-          <div id="barWater" style="width: 1.3%; background: #00D2FF; transition: width 0.3s;" title="Water"></div>
-          <div id="barBare" style="width: 16.4%; background: #64748B; transition: width 0.3s;" title="Bare Ground"></div>
+          <div id="barBuilt" style="width: 0%; background: #DC5A28; transition: width 0.3s;" title="Built-up"></div>
+          <div id="barVeg" style="width: 0%; background: #10B981; transition: width 0.3s;" title="Vegetation"></div>
+          <div id="barWater" style="width: 0%; background: #00D2FF; transition: width 0.3s;" title="Water"></div>
+          <div id="barBare" style="width: 0%; background: #64748B; transition: width 0.3s;" title="Bare Ground"></div>
         </div>
 
         <!-- Legend Pills -->
         <div style="display: flex; gap: 10px; flex-wrap: wrap; font-size: 11px; font-family: var(--font-mono); margin-top: 2px;">
-          <span style="display: flex; align-items: center; gap: 4px; color: #E2E8F0;"><span style="width: 8px; height: 8px; border-radius: 2px; background: #DC5A28;"></span> Built: <b id="lblBuilt" style="color: #FFF;">80.9%</b></span>
-          <span style="display: flex; align-items: center; gap: 4px; color: #E2E8F0;"><span style="width: 8px; height: 8px; border-radius: 2px; background: #10B981;"></span> Veg: <b id="lblVeg" style="color: #FFF;">1.4%</b></span>
-          <span style="display: flex; align-items: center; gap: 4px; color: #E2E8F0;"><span style="width: 8px; height: 8px; border-radius: 2px; background: #00D2FF;"></span> Water: <b id="lblWater" style="color: #FFF;">1.3%</b></span>
-          <span style="display: flex; align-items: center; gap: 4px; color: #E2E8F0;"><span style="width: 8px; height: 8px; border-radius: 2px; background: #64748B;"></span> Bare: <b id="lblBare" style="color: #FFF;">16.4%</b></span>
+          <span style="display: flex; align-items: center; gap: 4px; color: #E2E8F0;"><span style="width: 8px; height: 8px; border-radius: 2px; background: #DC5A28;"></span> Built: <b id="lblBuilt" style="color: #FFF;">--</b></span>
+          <span style="display: flex; align-items: center; gap: 4px; color: #E2E8F0;"><span style="width: 8px; height: 8px; border-radius: 2px; background: #10B981;"></span> Veg: <b id="lblVeg" style="color: #FFF;">--</b></span>
+          <span style="display: flex; align-items: center; gap: 4px; color: #E2E8F0;"><span style="width: 8px; height: 8px; border-radius: 2px; background: #00D2FF;"></span> Water: <b id="lblWater" style="color: #FFF;">--</b></span>
+          <span style="display: flex; align-items: center; gap: 4px; color: #E2E8F0;"><span style="width: 8px; height: 8px; border-radius: 2px; background: #64748B;"></span> Bare: <b id="lblBare" style="color: #FFF;">--</b></span>
         </div>
       </div>
     </div>
@@ -900,10 +900,10 @@
           <div class="metric-card">
             <h3>Spatial Telemetry</h3>
             <div id="spatialStats">
-              <div class="stat-row"><span class="stat-key">Detected Area</span><span class="stat-val" id="statArea">94.87 ha</span></div>
-              <div class="stat-row"><span class="stat-key">WGS84 Centroid</span><span class="stat-val" id="statCentroid">22.568° N, 88.337° E</span></div>
-              <div class="stat-row"><span class="stat-key">Bounding Box</span><span class="stat-val" id="statBBox">[0, 0, 240, 349]</span></div>
-              <div class="stat-row"><span class="stat-key">Confidence</span><span class="stat-val" id="statConfidence" style="color: var(--emerald);">92%</span></div>
+              <div class="stat-row"><span class="stat-key">Detected Area</span><span class="stat-val" id="statArea">--</span></div>
+              <div class="stat-row"><span class="stat-key">WGS84 Centroid</span><span class="stat-val" id="statCentroid">--</span></div>
+              <div class="stat-row"><span class="stat-key">Bounding Box</span><span class="stat-val" id="statBBox">--</span></div>
+              <div class="stat-row"><span class="stat-key">Confidence</span><span class="stat-val" id="statConfidence" style="color: var(--emerald);">--</span></div>
             </div>
           </div>
         </div>
@@ -912,13 +912,9 @@
       <!-- 3. Audit Trace Pane -->
       <div class="sidebar-pane" id="tracePane">
         <div class="trace-pane" id="traceBox">
-          <div class="trace-step">
-            <div class="trace-num">1</div>
-            <div class="trace-body"><b>Input Validator</b><span>Primary: GeoTIFF EPSG:32645</span></div>
-          </div>
-          <div class="trace-step">
-            <div class="trace-num">2</div>
-            <div class="trace-body"><b>Query Interpreter</b><span>Task=grounding; feature=water</span></div>
+          <div class="trace-step" style="opacity: 0.6;">
+            <div class="trace-num">-</div>
+            <div class="trace-body"><b>Audit Pipeline</b><span>Awaiting query execution...</span></div>
           </div>
         </div>
       </div>
@@ -1090,13 +1086,14 @@ document.querySelectorAll('.sidebar-tab-btn').forEach(btn => {
 // ── 4. Chart.js Land-Cover Analytics ───────────────────────────
 let landCoverChartInstance = null;
 
-function initOrUpdateChart(water=1.3, veg=1.4, built=80.9, bare=16.4) {
+function initOrUpdateChart(water=0, veg=0, built=0, bare=0) {
   const ctx = $('landCoverChart').getContext('2d');
+  const sum = water + veg + built + bare;
   const data = {
-    labels: ['Built-up Fabric', 'Vegetation', 'Water Bodies', 'Bare / Other'],
+    labels: sum > 0 ? ['Built-up Fabric', 'Vegetation', 'Water Bodies', 'Bare / Other'] : ['Awaiting Analysis'],
     datasets: [{
-      data: [built, veg, water, bare],
-      backgroundColor: ['#DC5A28', '#10B981', '#00D2FF', '#64748B'],
+      data: sum > 0 ? [built, veg, water, bare] : [100],
+      backgroundColor: sum > 0 ? ['#DC5A28', '#10B981', '#00D2FF', '#64748B'] : ['#334155'],
       borderWidth: 0,
       hoverOffset: 4
     }]
@@ -1135,6 +1132,30 @@ function resetAnalysisState() {
   state.lastResult = null;
   $('ask').disabled = false;
   $('ask').textContent = 'Analyze';
+
+  // Reset live telemetry indicators
+  $('liveAreaVal').textContent = '--';
+  $('liveConfVal').textContent = '--';
+  $('liveTaskVal').textContent = 'Ready';
+  $('statArea').textContent = '--';
+  $('statCentroid').textContent = '--';
+  $('statBBox').textContent = '--';
+  $('statConfidence').textContent = '--';
+  $('evidenceBadge').textContent = 'Awaiting Query';
+  $('evidenceBadge').style.color = 'var(--text-dim)';
+  $('evidenceBadge').style.borderColor = 'var(--panel-border)';
+
+  // Reset progress bars and labels
+  $('barBuilt').style.width = '0%';
+  $('barVeg').style.width = '0%';
+  $('barWater').style.width = '0%';
+  $('barBare').style.width = '0%';
+  $('lblBuilt').textContent = '--';
+  $('lblVeg').textContent = '--';
+  $('lblWater').textContent = '--';
+  $('lblBare').textContent = '--';
+
+  initOrUpdateChart(0, 0, 0, 0);
 }
 
 async function upload(kind, file) {
@@ -1626,7 +1647,7 @@ $('query').addEventListener('keydown', e => {
 // Initial demo load
 window.addEventListener('DOMContentLoaded', () => {
   loadDemo('kolkata');
-  initOrUpdateChart(1.3, 1.4, 80.9, 16.4);
+  initOrUpdateChart(0, 0, 0, 0);
 });
 </script>
 </body>

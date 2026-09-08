@@ -3612,12 +3612,15 @@ def _handle_land_cover_segmenter(ctx: Dict[str, Any], **params) -> Dict[str, Any
             f"Detected: {', '.join(classes_found)}."
         )
 
+        classified_pct = float(water_pct + veg_pct + built_pct + desert_pct)
+        dyn_conf = round(float(np.clip(0.72 + (classified_pct / 100.0) * 0.23, 0.72, 0.96)), 2)
+
         return {
             "task": "segmentation",
             "tool": tool_name,
             "feature": "multiclass",
             "answer": answer,
-            "confidence": 0.88,
+            "confidence": dyn_conf,
             "mask_stats": seg_stats,
             "evidence": {
                 "water_percent": water_pct,

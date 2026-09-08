@@ -1481,7 +1481,17 @@ def analyze_grounding(
     detected = (bounding_box is not None and stats["percent"] > 0.3)
 
     if detected:
-        answer = f"Localized {feature} in the image."
+        # Clean up feature phrase for fluent natural output
+        clean_feat = feature.strip().rstrip(".").strip()
+        for prefix in ["locate the ", "locate ", "highlight the ", "highlight ", "find the ", "find ", "detect the ", "detect ", "delineate the ", "delineate "]:
+            if clean_feat.lower().startswith(prefix):
+                clean_feat = clean_feat[len(prefix):].strip()
+        for suffix in [" in the image", " in this image", " in the scene", " in this scene", " referred to in the query"]:
+            if clean_feat.lower().endswith(suffix):
+                clean_feat = clean_feat[:-len(suffix)].strip()
+        
+        feat_display = clean_feat if clean_feat else "target feature"
+        answer = f"Localized {feat_display} in the image."
         location = evidence.get("location")
         if location:
             answer += f" Primary spatial concentration is in the {location} sector."

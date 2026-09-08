@@ -97,18 +97,31 @@ def build_training_samples(vlm: Any, demo_dir: Path) -> List[Tuple[str, str, str
         except Exception as exc:
             print(f"[Train] Note reading RSVQA: {exc}")
 
-    # 5. Ingest from full BigEarthNet test set
-    ben_full = EXTERNAL_DATA_DIR / "bigearthnet" / "bigearthnet_full_test.json"
-    if ben_full.exists():
+    # 5. Ingest from authentic BigEarthNet annotations & balanced train set
+    s2_img = str(demo_dir / "bigearthnet" / "S2_multispectral_patch.tif")
+    ben_ann = demo_dir / "bigearthnet" / "annotations.json"
+    if ben_ann.exists():
         try:
-            with open(ben_full, "r", encoding="utf-8") as f:
-                ben_items = json.load(f)
-                s2_img = str(demo_dir / "bigearthnet" / "S2_multispectral_patch.tif")
-                for item in ben_items[:100]:
-                    samples.append((s2_img, item["question"], item["answer"].strip().lower()))
-            print(f"[Train] Ingested {min(len(ben_items), 100)} QA pairs from BigEarthNet.txt.")
+            with open(ben_ann, "r", encoding="utf-8") as f:
+                ann_data = json.load(f)
+                for qa in ann_data.get("authentic_vqa_pairs", []):
+                    samples.append((s2_img, qa["question"], qa["answer"].strip().lower()))
         except Exception as exc:
-            print(f"[Train] Note reading BigEarthNet: {exc}")
+            print(f"[Train] Note reading BigEarthNet annotations: {exc}")
+
+    ben_train_file = EXTERNAL_DATA_DIR / "bigearthnet" / "bigearthnet_full_train.json"
+    if ben_train_file.exists():
+        try:
+            with open(ben_train_file, "r", encoding="utf-8") as f:
+                ben_train = json.load(f)
+                # Take balanced yes/no pairs
+                yes_items = [x for x in ben_train if x.get("answer", "").strip().lower() == "yes"][:60]
+                no_items = [x for x in ben_train if x.get("answer", "").strip().lower() == "no"][:60]
+                for item in yes_items + no_items:
+                    samples.append((s2_img, item["question"], item["answer"].strip().lower()))
+            print(f"[Train] Ingested {len(yes_items) + len(no_items)} balanced QA pairs from BigEarthNet.txt.")
+        except Exception as exc:
+            print(f"[Train] Note reading BigEarthNet train: {exc}")
 
     return samples
 

@@ -876,6 +876,8 @@
             <button class="prompt-btn" data-q="What changed between these two dates, and where did the change occur?">Compare Change (T1→T2)</button>
             <button class="prompt-btn" data-q="Use the optical and SAR images together to identify built-up and water-covered regions.">Optical + SAR Joint</button>
             <button class="prompt-btn" data-q="Has the built-up area increased, decreased, or remained unchanged?">Directional Change VQA</button>
+            <button class="prompt-btn" data-q="Would you say that any arable land lies next to pastures in the image?">BigEarthNet Adjacency QA</button>
+            <button class="prompt-btn" data-q="Are pastures present in this satellite scene?">BigEarthNet Presence QA</button>
           </div>
         </div>
 
@@ -1193,9 +1195,9 @@ const SCENE_METADATA = {
     sensor: 'ISRO Cartosat-2S (0.8m) + RISAT-1A SAR'
   },
   bigearthnet: {
-    location: 'BigEarthNet-MM Benchmark Tile (S1/S2 Co-registered)',
-    date: 'Multimodal Benchmark (arXiv:2603.29630)',
-    sensor: 'Sentinel-1 Dual-Pol SAR (VV/VH) + Sentinel-2 MSI (12-Band)'
+    location: 'Upper Austria / Bavaria (BigEarthNet-MM Corridor)',
+    date: 'June 12-13, 2017 (arXiv:2603.29630)',
+    sensor: 'Sentinel-1 RTC SAR (VV/VH) + Sentinel-2 MSI (10m L2A)'
   },
   real_sf: {
     location: 'San Francisco Bay & Golden Gate, CA',

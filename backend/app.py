@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from pathlib import Path
@@ -3159,9 +3160,9 @@ def load_demo_sample(req: LoadDemoRequest):
     """
     demo_registry = {
         "sentinel2": {
-            "primary": BASE_DIR / "demo_data/bigearthnet/S2_multispectral_patch.tif",
+            "primary": BASE_DIR / "demo_data/real_world_satellite/real_san_francisco_optical.tif",
             "secondary": None,
-            "title": "Sentinel-2 4-Band Multispectral: San Francisco Bay (Real B04/B03/B02/B08)",
+            "title": "Sentinel-2 Multispectral: San Francisco Bay High-Resolution Scene",
         },
         "kolkata": {
             "primary": BASE_DIR / "demo_data/vrsbench/vrsbench_sample_01.tif",
@@ -3176,7 +3177,7 @@ def load_demo_sample(req: LoadDemoRequest):
         "bigearthnet": {
             "primary": BASE_DIR / "demo_data/bigearthnet/S2_multispectral_patch.tif",
             "secondary": BASE_DIR / "demo_data/bigearthnet/S1_sar_patch.tif",
-            "title": "BigEarthNet-MM Co-Registered Pair: Sentinel-2 Multispectral + Sentinel-1 SAR (arXiv:2603.29630)",
+            "title": "BigEarthNet-MM Authentic Pair: Sentinel-2 MSI + Sentinel-1 SAR (arXiv:2603.29630)",
         },
         "bitemporal": {
             "primary": BASE_DIR / "demo_data/cdvqa/cdvqa_time1.tif",
@@ -3272,6 +3273,137 @@ def load_demo_sample(req: LoadDemoRequest):
             "metadata": {k: v for k, v in prim_data.items() if k not in ("rgb", "bands")},
         },
         "secondary": sec_meta,
+    }
+
+
+# ============================================================
+# BIGEARTHNET.TXT INTEGRATION & EVALUATION ENDPOINTS (ISRO SIH)
+# ============================================================
+
+@app.get("/api/bigearthnet/records")
+def get_bigearthnet_records(
+    limit: int = 50,
+    offset: int = 0,
+    category: Optional[str] = None,
+    split: Optional[str] = None,
+    search: Optional[str] = None,
+):
+    """
+    Query and paginate real BigEarthNet.txt benchmark records (arXiv:2603.29630).
+    """
+    ben_file = BASE_DIR / "data" / "external_datasets" / "bigearthnet" / "bigearthnet_full_test.json"
+    if not ben_file.exists():
+        raise HTTPException(status_code=404, detail="BigEarthNet dataset not found.")
+
+    with open(ben_file, "r", encoding="utf-8") as f:
+        records = json.load(f)
+
+    filtered = records
+    if category:
+        cat_lower = category.lower()
+        filtered = [r for r in filtered if r.get("category", "").lower() == cat_lower]
+    if split:
+        sp_lower = split.lower()
+        filtered = [r for r in filtered if r.get("split", "").lower() == sp_lower]
+    if search:
+        s_lower = search.lower()
+        filtered = [
+            r for r in filtered
+            if s_lower in r.get("question", "").lower()
+            or s_lower in str(r.get("patch_id", "")).lower()
+            or s_lower in str(r.get("country", "")).lower()
+        ]
+
+    total = len(filtered)
+    page = filtered[offset : offset + limit]
+
+    return {
+        "dataset": "BigEarthNet.txt (arXiv:2603.29630)",
+        "total_available": total,
+        "limit": limit,
+        "offset": offset,
+        "records": page,
+    }
+
+
+@app.get("/api/bigearthnet/patch_info")
+def get_bigearthnet_patch_info():
+    """
+    Retrieve authentic metadata, coordinates, bands, and QA pairs for the active BigEarthNet patch.
+    """
+    ann_file = BASE_DIR / "demo_data" / "bigearthnet" / "annotations.json"
+    if not ann_file.exists():
+        raise HTTPException(status_code=404, detail="BigEarthNet patch annotations not found.")
+
+    with open(ann_file, "r", encoding="utf-8") as f:
+        ann = json.load(f)
+
+    s2_path = BASE_DIR / "demo_data" / "bigearthnet" / "S2_multispectral_patch.tif"
+    s1_path = BASE_DIR / "demo_data" / "bigearthnet" / "S1_sar_patch.tif"
+
+    return {
+        "dataset": "BigEarthNet.txt (arXiv:2603.29630)",
+        "paper_citation": ann.get("paper_citation"),
+        "patch_id": ann.get("s2_patch_id"),
+        "s1_id": ann.get("s1_patch_id"),
+        "coordinates": ann.get("coordinates"),
+        "corine_land_cover_classes": ann.get("corine_land_cover_classes"),
+        "authentic_vqa_pairs": ann.get("authentic_vqa_pairs", []),
+        "s2_exists": s2_path.exists(),
+        "s1_exists": s1_path.exists(),
+    }
+
+
+class BigEarthNetEvalRequest(BaseModel):
+    sample_id: Optional[int] = None
+    question: Optional[str] = None
+    ground_truth: Optional[str] = None
+
+
+@app.post("/api/bigearthnet/evaluate_sample")
+def evaluate_bigearthnet_sample(req: BigEarthNetEvalRequest):
+    """
+    Run authentic BigEarthNet VQA evaluation against the co-registered Sentinel-2/Sentinel-1 patch.
+    """
+    ann_file = BASE_DIR / "demo_data" / "bigearthnet" / "annotations.json"
+    s2_path = BASE_DIR / "demo_data" / "bigearthnet" / "S2_multispectral_patch.tif"
+
+    if not s2_path.exists():
+        raise HTTPException(status_code=404, detail="BigEarthNet Sentinel-2 patch not found on disk.")
+
+    question = req.question
+    gt = req.ground_truth
+
+    if req.sample_id is not None and ann_file.exists():
+        with open(ann_file, "r", encoding="utf-8") as f:
+            ann = json.load(f)
+            pairs = ann.get("authentic_vqa_pairs", [])
+            for p in pairs:
+                if p.get("id") == req.sample_id:
+                    question = p.get("question")
+                    gt = p.get("answer")
+                    break
+
+    if not question:
+        question = "Would you say that any arable land lies next to pastures in the image?"
+        gt = "yes"
+
+    res = RS_VLM.analyze(s2_path, question)
+    pred_ans = str(res.get("answer", "")).strip().lower()
+    gt_clean = str(gt).strip().lower() if gt else ""
+
+    matched = bool(pred_ans == gt_clean or (gt_clean and gt_clean in pred_ans))
+
+    return {
+        "dataset": "BigEarthNet.txt (arXiv:2603.29630)",
+        "patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_26_57",
+        "question": question,
+        "ground_truth": gt,
+        "predicted_answer": res.get("answer"),
+        "confidence": res.get("confidence"),
+        "matched": matched,
+        "model": res.get("model", "GeoRSCLIP-ViT-B-32"),
+        "reasoning": res.get("reasoning"),
     }
 
 

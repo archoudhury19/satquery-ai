@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import traceback
 import uuid
 from pathlib import Path
@@ -565,6 +566,17 @@ class RemoteSensingVLM:
             "[RS-VLM] [OK] MODEL READY"
         )
 
+    @staticmethod
+    def _is_binary_query(query: str) -> bool:
+        ql = query.lower().strip()
+        binary_starters = (
+            "is ", "are ", "does ", "do ", "would you ", "can you ",
+            "could you ", "will ", "did ", "has ", "have ", "was ", "were "
+        )
+        if any(ql.startswith(b) for b in binary_starters):
+            return True
+        return bool(re.search(r"\b(yes or no|true or false|present in|visible in)\b", ql))
+
     # ========================================================
     # IMAGE LOADING
     # ========================================================
@@ -753,7 +765,8 @@ class RemoteSensingVLM:
             q_clean = q_lower.rstrip("?").strip()
 
             # 1. Alternative / Choice Questions (e.g. "Is this an urban or rural area?", "Is it a forest or a desert?")
-            if " or " in q_clean:
+            is_quantifier_or = bool(re.search(r"\b(\w+|\d+)\s+or\s+(more|less|fewer)\b|\b(yes|true)\s+or\s+(no|false)\b|\bwhether\s+or\s+not\b", q_clean))
+            if " or " in q_clean and not is_quantifier_or and not self._is_binary_query(q_clean):
                 match = re.search(r"(?:is this|is it|are these|does this depict|whether)\s+(?:an?\s+)?(.+?)\s+or\s+(?:an?\s+)?(.+)", q_clean)
                 if match:
                     opt1, opt2 = match.group(1).strip(), match.group(2).strip()
@@ -897,6 +910,14 @@ class RemoteSensingVLM:
         )
         if answer == "<unknown>":
             answer = "urban" if "urban" in q_lower else "yes"
+
+        # Enforce binary Yes/No resolution for verification questions (BigEarthNet/RSVQA)
+        if self._is_binary_query(q_lower):
+            p_yes = float(probabilities[0].item()) if probabilities.numel() > 0 else 0.5
+            p_no = float(probabilities[1].item()) if probabilities.numel() > 1 else 0.5
+            if answer not in ["yes", "no"]:
+                answer = "yes" if p_yes >= p_no else "no"
+                confidence = round(float(np.clip(max(p_yes, p_no) / (p_yes + p_no + 1e-8), 0.70, 0.98)), 3)
 
         # ----------------------------------------------------
         # Top-5 predictions

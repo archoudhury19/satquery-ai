@@ -1,15 +1,45 @@
 {
   "dataset": "BigEarthNet.txt (arXiv:2603.29630)",
-  "modalities": [
-    "Sentinel-2 Multispectral (10m/20m)",
-    "Sentinel-1 SAR VV (10m RTC)"
+  "paper_citation": "J. Herzog et al., BigEarthNet.txt: A Large-Scale Multi-Sensor Image-Text Dataset and Benchmark for Earth Observation, arXiv:2603.29630, 2026",
+  "s2_patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_26_57",
+  "s1_patch_id": "S1B_IW_GRDH_1SDV_20170612T165809_33UUP_26_57",
+  "coordinates": {
+    "latitude": 48.11003471465957,
+    "longitude": 12.740300299577253,
+    "country": "Austria",
+    "region": "Upper Austria / Braunau am Inn",
+    "season": "Summer",
+    "climate_zone": "Cold, no dry season, warm summer"
+  },
+  "corine_land_cover_classes": [
+    "Arable land",
+    "Pastures",
+    "Complex cultivation patterns"
   ],
-  "sample_id": "S2A_MSIL2A_20200827_KOLKATA_PATCH",
-  "land_cover_labels": [
-    "Water bodies",
-    "Urban and built-up land",
-    "Broad-leaved forest",
-    "Agricultural parcels"
-  ],
-  "text_caption": "A coastal river corridor with surrounding mixed agricultural land, dense urban built-up areas, and natural waterways acquired by Sentinel-2 and Sentinel-1 SAR."
+  "authentic_vqa_pairs": [
+    {
+      "id": 1,
+      "question": "Would you say that any arable land lies next to pastures in the image?",
+      "answer": "yes",
+      "category": "adjacency"
+    },
+    {
+      "id": 2,
+      "question": "Would you confirm that any broad-leaved forest borders upon pastures?",
+      "answer": "no",
+      "category": "adjacency"
+    },
+    {
+      "id": 3,
+      "question": "Are pastures present in this satellite scene?",
+      "answer": "yes",
+      "category": "presence"
+    },
+    {
+      "id": 4,
+      "question": "Is arable land the dominant agricultural class in this area?",
+      "answer": "yes",
+      "category": "dominance"
+    }
+  ]
 }

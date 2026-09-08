@@ -264,23 +264,11 @@ def download_full_bigearthnet(
     except Exception as exc:
         print(f"  Note during HF streaming: {exc}. Using robust fallback.")
 
-    # If stream was interrupted or limited, synthesize complete coverage from known patch manifest
     if len(test_records) < 50:
-        print("  Generating deep BigEarthNet-MM test split across all CORINE classes...")
-        classes = OPEN_DATASETS["bigearthnet"]["classes"]
-        for i, c in enumerate(classes):
-            test_records.append({
-                "ID": f"ben_test_{i+1:04d}",
-                "patch_id": f"S2A_MSIL2A_20170717T113321_N0205_R080_T30UVU_{i}",
-                "question": f"Is {c.lower()} present in this satellite image?",
-                "answer": "yes" if i % 2 == 0 else "no",
-                "type": "binary",
-                "category": "presence",
-                "split": "test",
-                "latitude": 48.11 + i * 0.05,
-                "longitude": 12.74 + i * 0.05,
-                "country": "Austria",
-            })
+        raise RuntimeError(
+            f"Insufficient genuine BigEarthNet records retrieved ({len(test_records)}). "
+            "Synthetic generation is disabled. Please verify network access to Hugging Face."
+        )
 
     with open(cached_test, "w", encoding="utf-8") as f:
         json.dump(test_records, f, indent=2)

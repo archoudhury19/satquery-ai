@@ -75,18 +75,25 @@ def generate_rs_caption(
     g = rgb[:, :, 1].astype(float)
     b = rgb[:, :, 2].astype(float)
 
-    # Water: low brightness, blue-green dominance
-    is_water = ((b > r + 4) | (g > r + 6)) & (r < 90) & (g < 100) & (0.299*r + 0.587*g + 0.114*b < 95)
+    # Water: low brightness, blue-green dominance or deep absorption, plus sediment water
+    # (Catches clear water, ocean, and turbid river waterways like the Hooghly)
+    is_water = (
+        (((b > r + 2) | (g > r + 4)) & (r < 110) & (g < 125) & (0.299*r + 0.587*g + 0.114*b < 115))
+        | ((r < 55) & (g < 65) & (b < 75))
+    )
     # Vegetation: green peak
-    is_veg = (g > r + 4) & (g > b + 2) & (~is_water)
-    # Desert / Sand: high warm brightness
-    is_desert = (r > 95) & (g > 75) & (r >= b + 6) & (~is_water) & (~is_veg)
-    # Built-up: urban fabric and structural edges
+    is_veg = (g > r + 3) & (g > b + 1) & (~is_water)
+    # True desert sand dunes: high warm reflectance characteristic of sand ergs
+    is_desert = (r > 165) & (g > 135) & (b > 90) & (r >= b + 15) & (~is_water) & (~is_veg)
+    # Built-up: urban fabric, structures, rooftops, and arterial roads
     gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
-    edges = cv2.Canny(gray, 60, 140)
+    edges = cv2.Canny(gray, 50, 130)
     edge_density = cv2.blur((edges > 0).astype(float), (15, 15))
-    is_built = ((edge_density > 0.06) | ((np.abs(r - g) < 20) & (r > 70) & (r < 180))) & (~is_water) & (~is_veg) & (~is_desert)
-    # Bare / unclassified
+    is_built = (
+        ((edge_density > 0.04) | ((np.abs(r - g) < 25) & (r > 65) & (r < 200)))
+        & (~is_water) & (~is_veg) & (~is_desert)
+    )
+    # Bare / unclassified ground
     is_bare = (~is_water) & (~is_veg) & (~is_built) & (~is_desert)
 
     water_pct = round(100.0 * float(is_water.sum()) / total_pixels, 1)
@@ -96,16 +103,20 @@ def generate_rs_caption(
     bare_pct = round(100.0 * float(is_bare.sum()) / total_pixels, 1)
 
     # 2. Determine primary landscape classification
-    if desert_pct >= 60.0:
+    if (desert_pct + bare_pct) >= 50.0:
         top_landscape = "barren_desert"
-    elif water_pct >= 35.0:
+    elif built_pct >= 30.0 and water_pct >= 10.0:
+        top_landscape = "urban_riverine"
+    elif water_pct >= 25.0:
         top_landscape = "coastal_marine" if water_pct >= 45.0 else "riverine_water"
-    elif built_pct >= 45.0:
+    elif built_pct >= 35.0:
         top_landscape = "urban_dense"
-    elif veg_pct >= 40.0:
-        top_landscape = "forest_woodland" if veg_pct >= 65.0 else "agricultural"
-    elif built_pct >= 20.0 and veg_pct >= 15.0:
+    elif veg_pct >= 35.0:
+        top_landscape = "forest_woodland" if veg_pct >= 60.0 else "agricultural"
+    elif built_pct >= 15.0 and veg_pct >= 15.0:
         top_landscape = "urban_suburban"
+    elif bare_pct >= 30.0 and desert_pct >= 10.0:
+        top_landscape = "barren_desert"
     else:
         top_landscape = "urban_dense" if built_pct >= veg_pct else "agricultural"
 
@@ -156,10 +167,10 @@ def generate_rs_caption(
         if s_rgb.size == 0:
             continue
         sr, sg, sb = s_rgb[..., 0].astype(float), s_rgb[..., 1].astype(float), s_rgb[..., 2].astype(float)
-        s_water = float((((sb > sr + 4) | (sg > sr + 6)) & (sr < 90)).mean())
-        s_veg = float(((sg > sr + 4) & (sg > sb + 2)).mean())
-        s_desert = float(((sr > 95) & (sg > 75) & (sr >= sb + 6)).mean())
-        if s_water > 0.25:
+        s_water = float((((((sb > sr + 2) | (sg > sr + 4)) & (sr < 110) & (sg < 125)) | ((sr < 55) & (sg < 65) & (sb < 75)))).mean())
+        s_veg = float(((sg > sr + 3) & (sg > sb + 1)).mean())
+        s_desert = float(((sr > 165) & (sg > 135) & (sb > 90) & (sr >= sb + 15)).mean())
+        if s_water > 0.15:
             sector_features[s_name] = "water body / river corridor"
         elif s_veg > 0.35:
             sector_features[s_name] = "dense vegetation cover"
@@ -183,6 +194,7 @@ def generate_rs_caption(
     # Formulate structured VRSBench narratives
     landscape_narratives = {
         "urban_dense": "a dense metropolitan urban corridor characterized by concentrated built-up fabric and arterial transportation infrastructure",
+        "urban_riverine": "a dense metropolitan urban corridor bordering a major river channel and waterway corridor",
         "urban_suburban": "a mixed suburban settlement featuring planned residential grids, transport networks, and interspersed green canopy",
         "agricultural": "an intensive agricultural landscape dominated by cultivated crop parcels, geometric field plots, and rural vegetative cover",
         "forest_woodland": "a contiguous forested landscape dominated by dense tree canopy, natural woodland, and rugged terrain",
@@ -218,14 +230,16 @@ def generate_rs_caption(
 
     obj_descriptions = [object_narratives[o] for o in consistent_objects if o in object_narratives]
     if not obj_descriptions:
-        if built_pct > 20:
+        if top_landscape == "barren_desert":
+            obj_descriptions.append("wind-shaped sand dunes, undulating ergs, and exposed arid terrain")
+        elif built_pct > 20:
             obj_descriptions.append("commercial and residential building clusters with paved transit corridors")
         if veg_pct > 10:
             obj_descriptions.append("contiguous parcels of vegetation and tree canopy")
         if water_pct > 2:
             obj_descriptions.append("open water bodies and aquatic channels")
-        if desert_pct > 30:
-            obj_descriptions.append("wind-shaped sand dunes, ergs, and arid terrain")
+        if (desert_pct > 15 or bare_pct > 30) and top_landscape != "barren_desert":
+            obj_descriptions.append("exposed soil parcels and bare ground patches")
 
     obj_text = ", ".join(obj_descriptions) if obj_descriptions else "characteristic surface terrain and land-cover features"
 
@@ -234,7 +248,8 @@ def generate_rs_caption(
     if built_pct > 0.5: breakdown_parts.append(f"{built_pct:.1f}% built-up structures")
     if veg_pct > 0.5: breakdown_parts.append(f"{veg_pct:.1f}% vegetation / green canopy")
     if water_pct > 0.5: breakdown_parts.append(f"{water_pct:.1f}% water bodies")
-    if desert_pct > 0.5: breakdown_parts.append(f"{desert_pct:.1f}% desert sand dunes")
+    if desert_pct > 5.0: breakdown_parts.append(f"{desert_pct:.1f}% desert sand dunes")
+    elif desert_pct > 0.5: breakdown_parts.append(f"{desert_pct:.1f}% exposed soil / sandy ground")
     if bare_pct > 0.5: breakdown_parts.append(f"{bare_pct:.1f}% open bare terrain")
     breakdown_text = ", ".join(breakdown_parts) if breakdown_parts else f"{built_pct:.1f}% built-up, {veg_pct:.1f}% vegetation"
 

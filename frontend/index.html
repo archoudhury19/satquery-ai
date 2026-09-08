@@ -699,12 +699,12 @@
     <div class="toolbar">
       <div class="toolbar-row">
         <span class="toolbar-label">🛰️ Benchmarks:</span>
-        <button class="preset-pill active demo-btn" data-key="kolkata">🏙️ Kolkata High-Res</button>
-        <button class="preset-pill demo-btn" data-key="sentinel2">🛰️ Sentinel-2 SF Bay (Real 4-Band MSI)</button>
-        <button class="preset-pill demo-btn" data-key="bitemporal">🔥 California Wildfire T1/T2 (Real Sentinel-2)</button>
-        <button class="preset-pill demo-btn" data-key="real_sf">🌐 San Francisco Bay (COG)</button>
-        <button class="preset-pill demo-btn" data-key="optical_sar">📡 Cartosat + RISAT SAR (ISRO/SAC)</button>
-        <button class="preset-pill demo-btn" data-key="bigearthnet">🌍 BigEarthNet-MM (Optical + SAR)</button>
+        <button class="preset-pill active demo-btn" data-key="kolkata" data-q="Describe the land-cover and major objects visible in this image.">🏙️ Kolkata High-Res</button>
+        <button class="preset-pill demo-btn" data-key="sentinel2" data-q="Identify the green fields, buildings, and water in different colours.">🛰️ Sentinel-2 SF Bay (Real 4-Band MSI)</button>
+        <button class="preset-pill demo-btn" data-key="bitemporal" data-q="What changed between these two dates, and where did the change occur?">🔥 California Wildfire T1/T2 (Real Sentinel-2)</button>
+        <button class="preset-pill demo-btn" data-key="real_sf" data-q="Highlight the water body referred to in the query.">🌐 San Francisco Bay (COG)</button>
+        <button class="preset-pill demo-btn" data-key="optical_sar" data-q="Use the optical and SAR images together to identify built-up and water-covered regions.">📡 Cartosat + RISAT SAR (ISRO/SAC)</button>
+        <button class="preset-pill demo-btn" data-key="bigearthnet" data-q="Are pastures present in this satellite scene?">🌍 BigEarthNet-MM (Optical + SAR)</button>
       </div>
       <div class="toolbar-row">
         <span class="toolbar-label">🌍 Edge Cases:</span>
@@ -1317,10 +1317,14 @@ async function loadDemo(sampleKey) {
 }
 
 document.querySelectorAll('.demo-btn').forEach(b => {
-  b.onclick = () => {
+  b.onclick = async () => {
     document.querySelectorAll('.preset-pill').forEach(p => p.classList.remove('active'));
     b.classList.add('active');
-    loadDemo(b.dataset.key);
+    await loadDemo(b.dataset.key);
+    if (b.dataset.q) {
+      $('query').value = b.dataset.q;
+      setTimeout(() => $('ask').click(), 250);
+    }
   };
 });
 
@@ -1330,12 +1334,15 @@ document.querySelectorAll('.ec-btn').forEach(b => {
     b.classList.add('active');
     await loadDemo(b.dataset.ec);
     $('query').value = b.dataset.q;
-    setTimeout(() => $('ask').click(), 300);
+    setTimeout(() => $('ask').click(), 250);
   };
 });
 
 document.querySelectorAll('.prompt-btn').forEach(b => {
-  b.onclick = () => { $('query').value = b.dataset.q; $('query').focus(); };
+  b.onclick = () => {
+    $('query').value = b.dataset.q;
+    $('ask').click();
+  };
 });
 
 // ── 6. Query Analysis Execution ────────────────────────────────
@@ -1645,9 +1652,11 @@ $('query').addEventListener('keydown', e => {
 });
 
 // Initial demo load
-window.addEventListener('DOMContentLoaded', () => {
-  loadDemo('kolkata');
+window.addEventListener('DOMContentLoaded', async () => {
+  await loadDemo('kolkata');
   initOrUpdateChart(0, 0, 0, 0);
+  $('query').value = "Describe the land-cover and major objects visible in this image.";
+  setTimeout(() => $('ask').click(), 350);
 });
 </script>
 </body>

@@ -242,6 +242,14 @@ def compute_cdvqa_metrics(
     norm_p = normalize_text(pred_answer)
     norm_t = normalize_text(true_answer)
 
+    # Empty or whitespace-only predictions must receive 0.0 accuracy across the board
+    if not norm_p:
+        return {
+            "directional_accuracy": 0.0,
+            "delta_percentage_error": None,
+            "rouge_l": 0.0,
+        }
+
     # 1. Directional Classification Accuracy with negation awareness
     dir_acc = 0.0
     if true_direction:
@@ -264,7 +272,7 @@ def compute_cdvqa_metrics(
         elif "decrease" in td:
             dir_acc = 1.0 if (pred_decreased and not pred_increased) else 0.0
         elif "unchanged" in td:
-            dir_acc = 1.0 if (pred_unchanged or (not pred_increased and not pred_decreased)) else 0.0
+            dir_acc = 1.0 if pred_unchanged else 0.0
 
     # 2. Key physical delta extraction
     p_deltas = re.findall(r"([+-]?\d+(?:\.\d+)?)\s*%", pred_answer)

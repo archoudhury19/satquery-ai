@@ -8,12 +8,15 @@
   "hidden_dim": 512,
   "num_classes": 50,
   "dataset": "BigEarthNet.txt (arXiv:2603.29630) + RSVQAxBEN",
-  "adaptation_train_samples": 247,
+  "adaptation_train_samples": 166,
   "internal_validation_samples": 400,
-  "best_internal_validation_accuracy": 0.8462,
-  "training_epochs": 25,
-  "final_training_loss": 0.3068,
+  "best_internal_validation_accuracy": 0.6585,
+  "training_epochs": 10,
+  "final_training_loss": 1.0554,
   "batch_size": 8,
   "gradient_accumulation_steps": 2,
-  "citation": "BigEarthNet.txt: A Large-Scale Multi-Sensor Image-Text Dataset (arXiv:2603.29630)"
+  "citation": "BigEarthNet.txt: A Large-Scale Multi-Sensor Image-Text Dataset (arXiv:2603.29630)",
+  "adaptation_val_samples": 41,
+  "final_training_accuracy": 0.6325,
+  "final_validation_loss": 1.2791
 }

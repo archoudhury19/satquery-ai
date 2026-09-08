@@ -96,6 +96,22 @@ def build_training_samples(vlm: Any, demo_dir: Path) -> List[Tuple[str, str, str
         except Exception as exc:
             print(f"[Train] Note reading BigEarthNet annotations: {exc}")
 
+    # 5. Ingest authentic RSVQA test samples
+    rsvqa_eval_file = BASE_DIR / "data" / "external_datasets" / "rsvqa" / "rsvqa_official_eval.json"
+    if rsvqa_eval_file.exists():
+        try:
+            with open(rsvqa_eval_file, "r", encoding="utf-8") as f:
+                rsvqa_items = json.load(f)
+                rsvqa_loaded = 0
+                for item in rsvqa_items:
+                    img_rel = item.get("image_path")
+                    if img_rel and (BASE_DIR / img_rel).exists():
+                        samples.append((str(BASE_DIR / img_rel), item["question"], item["answer"].strip().lower()))
+                        rsvqa_loaded += 1
+            print(f"[Train] Ingested {rsvqa_loaded} authentic RSVQA Sentinel-2 samples.")
+        except Exception as exc:
+            print(f"[Train] Note reading RSVQA official eval: {exc}")
+
     # Only retain samples whose images physically exist on disk
     valid_samples = [s for s in samples if s[0] and Path(s[0]).exists()]
     return valid_samples

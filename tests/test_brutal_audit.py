@@ -504,6 +504,135 @@ except Exception as e:
     test_assert(False, "Benchmark metric counterexamples test", str(e))
 
 # ------------------------------------------------------------
+# TEST 17: DISJOINT SCENE PAIR REJECTION GUARD (HTTP 400)
+# ------------------------------------------------------------
+print("\n--- TEST 17: Disjoint Scene Pair Rejection Guard ---")
+try:
+    from fastapi.testclient import TestClient
+    from backend.app import app, FILES
+    client = TestClient(app)
+    # Register mock disjoint scenes
+    FILES["disjoint_p"] = {
+        "path": BASE_DIR / "demo_data" / "vrsbench" / "vrsbench_sample_01.tif",
+        "data": {
+            "bounds_wgs84": [[22.4, 88.2], [22.6, 88.4]],
+            "count": 3,
+            "is_georeferenced": True,
+            "width": 512,
+            "height": 512,
+            "rgb": np.zeros((512, 512, 3), dtype=np.uint8),
+        },
+        "filename": "kolkata.tif",
+    }
+    FILES["disjoint_s"] = {
+        "path": BASE_DIR / "demo_data" / "real_world_satellite" / "real_san_francisco_optical.tif",
+        "data": {
+            "bounds_wgs84": [[37.6, -122.5], [37.8, -122.3]],
+            "count": 3,
+            "is_georeferenced": True,
+            "width": 512,
+            "height": 512,
+            "rgb": np.zeros((512, 512, 3), dtype=np.uint8),
+        },
+        "filename": "san_francisco.tif",
+    }
+    resp_disjoint = client.post("/api/analyze", json={
+        "primary_id": "disjoint_p",
+        "secondary_id": "disjoint_s",
+        "query": "Compare changes between these two images",
+    })
+    test_assert(resp_disjoint.status_code == 400,
+                "Disjoint image pair is rejected with HTTP 400 status", f"Status: {resp_disjoint.status_code}")
+    err_detail = str(resp_disjoint.json().get("detail", "")).lower()
+    test_assert("incompatible image pair rejected" in err_detail or "geographically disjoint" in err_detail,
+                "Rejection detail explains geographical disjointness", f"Detail: {err_detail}")
+except Exception as e:
+    test_assert(False, "Disjoint pair rejection guard test", str(e))
+
+# ------------------------------------------------------------
+# TEST 18: PAIRED VQA MODALITY ROUTING & ARGUMENT BINDING
+# ------------------------------------------------------------
+print("\n--- TEST 18: Paired VQA Modality Routing & Kwargs Binding ---")
+try:
+    from backend.app import _handle_rs_vqa, analyze_change
+    from types import SimpleNamespace
+
+    opt_p = BASE_DIR / "demo_data" / "isro_sac" / "cartosat_optical_coregistered.tif"
+    sar_p = BASE_DIR / "demo_data" / "isro_sac" / "risat_sar_coregistered.tif"
+    opt_d = _read_raster(opt_p)
+    sar_d = _read_raster(sar_p)
+
+    ctx_optical_sar = {
+        "primary": {"path": opt_p, "data": opt_d, "filename": opt_p.name},
+        "secondary": {"path": sar_p, "data": sar_d, "filename": sar_p.name},
+        "feature": "auto",
+        "req": SimpleNamespace(query="Are built-up areas distinguishable from water?"),
+        "trace": [],
+    }
+    vqa_fusion_res = _handle_rs_vqa(ctx_optical_sar)
+    test_assert(vqa_fusion_res.get("task") == "cross_modal" or "Optical-SAR" in vqa_fusion_res.get("tool", ""),
+                "Optical+SAR paired VQA correctly routed to cross-modal fusion (not bi-temporal change)",
+                f"Task: {vqa_fusion_res.get('task')}, Tool: {vqa_fusion_res.get('tool')}")
+
+    # Verify analyze_change binds kwargs (feature, query) without TypeError
+    t1_p = BASE_DIR / "demo_data" / "cdvqa" / "cdvqa_time1.tif"
+    t2_p = BASE_DIR / "demo_data" / "cdvqa" / "cdvqa_time2.tif"
+    t1_d = _read_raster(t1_p)
+    t2_d = _read_raster(t2_p)
+    chg_res = analyze_change(t1_p, t1_d, t2_p, t2_d, feature="water", query="Has the water coverage increased?")
+    test_assert("answer" in chg_res and "evidence" in chg_res,
+                "analyze_change binds feature and query kwargs cleanly", str(chg_res.get("answer"))[:60])
+except Exception as e:
+    test_assert(False, "Paired VQA modality routing & kwargs binding test", str(e))
+
+# ------------------------------------------------------------
+# TEST 19: EMPTY & UNCHANGED PREDICTION SCORING IN CDVQA
+# ------------------------------------------------------------
+print("\n--- TEST 19: Empty & Unchanged CDVQA Prediction Scoring ---")
+try:
+    from benchmarks.evaluate_metrics import compute_cdvqa_metrics
+
+    # Empty string should receive 0.0 directional accuracy even if target is unchanged
+    empty_res_unchanged = compute_cdvqa_metrics("", "The scene remained unchanged", true_direction="unchanged")
+    test_assert(empty_res_unchanged["directional_accuracy"] == 0.0,
+                "Empty string prediction receives 0.0 directional accuracy for 'unchanged' target",
+                f"Got: {empty_res_unchanged['directional_accuracy']}")
+
+    whitespace_res = compute_cdvqa_metrics("   \n\t  ", "The water area expanded", true_direction="increased")
+    test_assert(whitespace_res["directional_accuracy"] == 0.0,
+                "Whitespace-only prediction receives 0.0 directional accuracy",
+                f"Got: {whitespace_res['directional_accuracy']}")
+
+    # Correct unchanged sentence should receive 1.0
+    good_unchanged = compute_cdvqa_metrics("The lake extent remained unchanged and stable over time.", "The scene was unchanged", true_direction="unchanged")
+    test_assert(good_unchanged["directional_accuracy"] == 1.0,
+                "Genuine unchanged sentence receives 1.0 directional accuracy for 'unchanged' target",
+                f"Got: {good_unchanged['directional_accuracy']}")
+except Exception as e:
+    test_assert(False, "Empty & unchanged CDVQA prediction scoring test", str(e))
+
+# ------------------------------------------------------------
+# TEST 20: TIGHTENED PNG/JPEG FORMAT RESTRICTIONS
+# ------------------------------------------------------------
+print("\n--- TEST 20: Tightened Format Restrictions for PNG/JPEG ---")
+try:
+    import io
+    # Test arbitrary non-benchmark JPEG upload is rejected
+    dummy_jpeg = io.BytesIO(b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x01\x00`\x00`\x00\x00\xff\xdb\x00C\x00")
+    resp_bad = client.post("/api/upload", files={"file": ("test.jpg", dummy_jpeg, "image/jpeg")})
+    test_assert(resp_bad.status_code == 400,
+                "Arbitrary renamed file 'test.jpg' rejected with HTTP 400", f"Status: {resp_bad.status_code}")
+    test_assert("restricted to prescribed benchmark" in str(resp_bad.json().get("detail", "")).lower(),
+                "Rejection message states benchmark dataset restriction", str(resp_bad.json().get("detail")))
+
+    dummy_sample = io.BytesIO(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89")
+    resp_sample = client.post("/api/upload", files={"file": ("sample.png", dummy_sample, "image/png")})
+    test_assert(resp_sample.status_code == 400,
+                "Generic file 'sample.png' rejected with HTTP 400", f"Status: {resp_sample.status_code}")
+except Exception as e:
+    test_assert(False, "Tightened format restriction test", str(e))
+
+# ------------------------------------------------------------
 # FINAL SUMMARY
 # ------------------------------------------------------------
 print("\n" + "=" * 80)

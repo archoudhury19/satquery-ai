@@ -1626,10 +1626,12 @@ def analyze_change(
     evidence_before = spatial_evidence(mask1, data1)
     evidence_after = spatial_evidence(mask2, data2)
 
+    res_m = get_pixel_resolution_meters(data2)
     change_map, change_metrics = compute_bitemporal_change(
         mask1,
         mask2,
         feature=feature,
+        pixel_resolution_m=res_m,
         question=query,
     )
     direction = change_metrics["direction"]
@@ -3197,9 +3199,10 @@ async def upload(
     # Enforce SIH Requirement 12: PNG/JPEG restricted to prescribed benchmark inputs
     if suffix in {".png", ".jpg", ".jpeg"}:
         fn_lower = (file.filename or "").lower()
-        is_benchmark_input = any(token in fn_lower for token in [
-            "vrsbench", "rsvqa", "cdvqa", "bigearthnet", "benchmark", "p000", "eval", "sample", "test", "patch", "grounding", "seg"
-        ])
+        benchmark_tokens = [
+            "vrsbench", "rsvqa", "cdvqa", "bigearthnet", "dmarsili", "ljx620", "omlab", "rsvqa_lr", "cdvqa-test"
+        ]
+        is_benchmark_input = any(token in fn_lower for token in benchmark_tokens)
         if not is_benchmark_input:
             raise HTTPException(
                 status_code=400,
@@ -3766,13 +3769,27 @@ def _handle_rs_vqa(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
         }
     )
     if secondary:
-        return analyze_change(
-            primary["path"],
-            primary["data"],
-            secondary["path"],
-            secondary["data"],
-            req.query,
-        )
+        p_mod = infer_modality(primary["path"], primary["data"], primary.get("filename"))
+        s_mod = infer_modality(secondary["path"], secondary["data"], secondary.get("filename"))
+        is_optical_sar = ({p_mod, s_mod} == {"optical", "sar"})
+        feat = feature if feature not in {"auto", "scene", "multimodal", None} else "water"
+        if is_optical_sar:
+            return analyze_cross_modal(
+                primary["path"],
+                primary["data"],
+                secondary["path"],
+                secondary["data"],
+                feature=feat,
+            )
+        else:
+            return analyze_change(
+                primary["path"],
+                primary["data"],
+                secondary["path"],
+                secondary["data"],
+                feature=feat,
+                query=req.query,
+            )
     return analyze_single(
         primary["path"],
         primary["data"],
@@ -3855,6 +3872,13 @@ def analyze(
                 secondary,
             )
         )
+
+        if not pair_validation.get("compatible", False):
+            issues_str = "; ".join(pair_validation.get("issues", [])) or "Incompatible image pair footprint"
+            raise HTTPException(
+                status_code=400,
+                detail=f"Incompatible image pair rejected: {issues_str}",
+            )
 
     # --------------------------------------------------------
     # Conversation state

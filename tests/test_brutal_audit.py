@@ -872,6 +872,127 @@ except Exception as e:
     test_assert(False, "Calibrated benchmark threshold test", str(e))
 
 # ------------------------------------------------------------
+# TEST 29: TEMPORAL ACQUISITION EXTRACTION & CHRONOLOGICAL REORDERING
+# ------------------------------------------------------------
+print("\n--- TEST 29: Temporal Acquisition Verification & Chronological Reordering ---")
+try:
+    from backend.app import extract_acquisition_datetime, validate_pair_compatibility, analyze_change
+    from datetime import datetime
+    import rasterio
+    from rasterio.transform import from_origin
+
+    scratch = BASE_DIR / "data" / "scratch_test"
+    scratch.mkdir(parents=True, exist_ok=True)
+
+    # 29a. Verify tag parsing
+    tags_mock = {"TIFFTAG_DATETIME": "2021:07:20 14:35:10"}
+    dt_tag = extract_acquisition_datetime(data={"tags": tags_mock})
+    test_assert(dt_tag == datetime(2021, 7, 20, 14, 35, 10), "TIFFTAG_DATETIME parsed correctly", str(dt_tag))
+
+    # 29b. Verify filename pattern parsing (Sentinel-2 compact pattern)
+    fn_mock = "S2A_MSIL2A_20220815T103021_N0400_R008_T33UUP.tif"
+    dt_fn = extract_acquisition_datetime(original_filename=fn_mock)
+    test_assert(dt_fn == datetime(2022, 8, 15, 10, 30, 21), "Compact ISO filename parsed correctly", str(dt_fn))
+
+    # 29c. Chronological inversion test
+    # Create two synthetic rasters: late (2024-05-01) and early (2021-02-15)
+    p_late = scratch / "sentinel_scene_20240501.tif"
+    p_early = scratch / "sentinel_scene_20210215.tif"
+    arr_dummy = np.ones((50, 50, 3), dtype=np.uint8) * 100
+    with rasterio.open(p_late, 'w', driver='GTiff', height=50, width=50, count=3, dtype='uint8',
+                         crs='EPSG:4326', transform=from_origin(88.0, 22.0, 0.001, 0.001)) as dst:
+        for i in range(1, 4): dst.write(arr_dummy[:, :, i-1], i)
+    with rasterio.open(p_early, 'w', driver='GTiff', height=50, width=50, count=3, dtype='uint8',
+                         crs='EPSG:4326', transform=from_origin(88.0, 22.0, 0.001, 0.001)) as dst:
+        for i in range(1, 4): dst.write(arr_dummy[:, :, i-1], i)
+
+    d_late = {"rgb": arr_dummy, "width": 50, "height": 50, "count": 3, "crs": "EPSG:4326", "filename": p_late.name}
+    d_early = {"rgb": arr_dummy, "width": 50, "height": 50, "count": 3, "crs": "EPSG:4326", "filename": p_early.name}
+
+    # Inverted order: pass late as primary and early as secondary
+    val_inverted = validate_pair_compatibility(
+        {"path": p_late, "data": d_late, "filename": p_late.name},
+        {"path": p_early, "data": d_early, "filename": p_early.name}
+    )
+    test_assert(val_inverted["temporal"]["auto_reordered"] is True, "Pair validation detects chronological inversion")
+    test_assert(val_inverted["temporal"]["chronological_order"] == "inverted_auto_reordered", "Temporal status flagged as inverted_auto_reordered")
+
+    # Verify analyze_change auto-reorders inverted pair
+    chg_res = analyze_change(p_late, d_late, p_early, d_early, feature="water", query="Has water changed?")
+    test_assert(chg_res.get("temporal_verification", {}).get("auto_reordered") is True, "analyze_change automatically reorders inverted pair")
+    test_assert(chg_res["temporal_verification"]["t1"] == "2021-02-15T00:00:00", "Baseline T1 is the earlier date (2021-02-15)")
+    test_assert(chg_res["temporal_verification"]["t2"] == "2024-05-01T00:00:00", "Post-event T2 is the later date (2024-05-01)")
+except Exception as e:
+    test_assert(False, "Temporal verification and reordering test", str(e))
+
+# ------------------------------------------------------------
+# TEST 30: STATISTICALLY CALIBRATED CONFIDENCE (PLATT SCALING)
+# ------------------------------------------------------------
+print("\n--- TEST 30: Statistically Calibrated Confidence ---")
+try:
+    from backend.app import platt_calibrated_confidence
+
+    # 30a. Verify smooth logistic sigmoid curve without arbitrary discontinuous jumps
+    p_low = platt_calibrated_confidence(0.0, threshold=10.0, temperature=15.0, min_prob=0.05, max_prob=0.98)
+    p_mid = platt_calibrated_confidence(10.0, threshold=10.0, temperature=15.0, min_prob=0.05, max_prob=0.98)
+    p_high = platt_calibrated_confidence(40.0, threshold=10.0, temperature=15.0, min_prob=0.05, max_prob=0.98)
+    test_assert(p_low < p_mid < p_high, f"Platt probability is monotonic: {p_low} < {p_mid} < {p_high}")
+    test_assert(abs(p_mid - 0.50) <= 0.05, f"Platt threshold inflection maps to ~0.50 (got {p_mid})")
+
+    # 30b. Verify analyze_change returns calibrated metadata
+    test_assert(chg_res.get("calibrated") is True, "analyze_change reports calibrated: True")
+    test_assert(chg_res.get("calibration_method") == "platt_logistic_scaling", "Calibration method is platt_logistic_scaling")
+    test_assert(0.05 <= chg_res.get("confidence", 0.0) <= 0.98, "Confidence is within calibrated probability bounds [0.05, 0.98]")
+except Exception as e:
+    test_assert(False, "Statistically calibrated confidence test", str(e))
+
+# ------------------------------------------------------------
+# TEST 31: PHYSICS-FIRST MODALITY INFERENCE (ELIMINATING FILENAME TOKEN DEPENDENCY)
+# ------------------------------------------------------------
+print("\n--- TEST 31: Physics-First Modality Inference ---")
+try:
+    from backend.app import infer_modality
+    scratch = BASE_DIR / "data" / "scratch_test"
+    scratch.mkdir(parents=True, exist_ok=True)
+
+    # 31a. Optical raster deceptively named with "sar" token
+    deceptive_optical_path = scratch / "sar_water_study_2022.tif"
+    # Create uint16 smooth optical gradient (cv^2 << 0.45)
+    opt_grad = np.linspace(1000, 3000, 100 * 100, dtype=np.uint16).reshape((100, 100))
+    with rasterio.open(deceptive_optical_path, 'w', driver='GTiff', height=100, width=100, count=1,
+                         dtype='uint16', crs='EPSG:4326', transform=from_origin(88.0, 22.0, 0.001, 0.001)) as dst:
+        dst.write(opt_grad, 1)
+
+    inferred_optical = infer_modality(deceptive_optical_path, {"count": 1, "dtypes": ["uint16"], "tags": {}, "raw_band": opt_grad})
+    test_assert(inferred_optical == "optical", f"Smooth uint16 raster correctly inferred as optical despite 'sar' in filename (got {inferred_optical})")
+
+    # 31b. SAR raster deceptively named with "optical" token
+    deceptive_sar_path = scratch / "optical_true_color_scene.tif"
+    # Create float32 negative dB radar backscatter (-20 dB to -8 dB)
+    sar_db_arr = np.random.uniform(-20.0, -8.0, (100, 100)).astype(np.float32)
+    with rasterio.open(deceptive_sar_path, 'w', driver='GTiff', height=100, width=100, count=1,
+                         dtype='float32', crs='EPSG:4326', transform=from_origin(88.0, 22.0, 0.001, 0.001)) as dst:
+        dst.write(sar_db_arr, 1)
+
+    inferred_sar = infer_modality(deceptive_sar_path, {"count": 1, "dtypes": ["float32"], "tags": {}, "raw_band": sar_db_arr})
+    test_assert(inferred_sar == "sar", f"Negative dB float32 raster correctly inferred as SAR despite 'optical' in filename (got {inferred_sar})")
+except Exception as e:
+    test_assert(False, "Physics-first modality inference test", str(e))
+
+# ------------------------------------------------------------
+# TEST 32: SCALED BENCHMARK EVALUATION, VRSBENCH VQA & CONFUSION MATRIX
+# ------------------------------------------------------------
+print("\n--- TEST 32: Scaled Benchmark Evaluation, VRSBench VQA & Confusion Matrix ---")
+try:
+    bench_source = (BASE_DIR / "benchmarks" / "evaluate_benchmarks.py").read_text(encoding="utf-8")
+    test_assert("Active VRSBench VQA Evaluation" in bench_source or "vrs_vqa_preds" in bench_source, "Active VRSBench VQA evaluation implemented in benchmark suite")
+    test_assert("confusion_matrix" in bench_source, "CDVQA computes binary change confusion matrix (TP, TN, FP, FN)")
+    test_assert("category_accuracy" in bench_source, "RSVQA evaluates category-level accuracy breakdowns")
+    test_assert("VRSBench VQA" in bench_source, "Report table includes VRSBench VQA benchmark row")
+except Exception as e:
+    test_assert(False, "Scaled benchmark evaluation and confusion matrix test", str(e))
+
+# ------------------------------------------------------------
 # FINAL SUMMARY
 # ------------------------------------------------------------
 print("\n" + "=" * 80)

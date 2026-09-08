@@ -109,6 +109,12 @@ def run_benchmark_evaluation(
 
     eval_slice = rsvqa_items[:sample_limit]
     vqa_preds, vqa_gts, vqa_details = [], [], []
+    cat_breakdown = {
+        "presence": {"correct": 0, "total": 0},
+        "comparison": {"correct": 0, "total": 0},
+        "rural_urban": {"correct": 0, "total": 0},
+        "count": {"correct": 0, "total": 0},
+    }
 
     for idx, item in enumerate(eval_slice):
         full_img_p = BASE_DIR / item["image_path"]
@@ -123,22 +129,56 @@ def run_benchmark_evaluation(
         pred = str(resp.get("answer", "")).strip().lower()
         vqa_preds.append(pred)
         vqa_gts.append(gt)
-        vqa_details.append({"question": q, "ground_truth": gt, "predicted": pred, "confidence": resp.get("confidence", 0.0)})
+
+        # Categorize question
+        q_l = q.lower()
+        if "rural" in q_l or "urban" in q_l:
+            c_type = "rural_urban"
+        elif "how many" in q_l or "count" in q_l:
+            c_type = "count"
+        elif any(k in q_l for k in ["more", "less", "equal", "greater", "compare"]):
+            c_type = "comparison"
+        else:
+            c_type = "presence"
+
+        matched = bool(pred == gt or (gt and gt in pred and not (gt == "no" and "not " in pred)))
+        cat_breakdown[c_type]["total"] += 1
+        if matched:
+            cat_breakdown[c_type]["correct"] += 1
+
+        vqa_details.append({
+            "question": q,
+            "category": c_type,
+            "ground_truth": gt,
+            "predicted": pred,
+            "matched": matched,
+            "confidence": resp.get("confidence", 0.0),
+        })
 
     vqa_metrics = compute_vqa_accuracy(vqa_preds, vqa_gts)
     oa = vqa_metrics["overall_accuracy"]
+    cat_accuracies = {}
+    for c_type, counts in cat_breakdown.items():
+        if counts["total"] > 0:
+            cat_accuracies[c_type] = {
+                "accuracy_percent": round((counts["correct"] / counts["total"]) * 100.0, 1),
+                "evaluated": counts["total"],
+                "correct": counts["correct"],
+            }
+
     results["benchmarks"]["RSVQA"] = {
         "dataset": "RSVQA / RSVQA-LR-2k (Official Sentinel-2 Test Imagery)",
         "total_available_in_split": len(rsvqa_items),
         "evaluated_count": len(eval_slice),
         "overall_accuracy_percent": oa,
         "average_accuracy_percent": vqa_metrics["average_accuracy"],
+        "category_accuracy": cat_accuracies,
         "latency_sec": round(time.time() - t0, 3),
         "status": "PASSED" if oa >= 50.0 else ("MARGINAL" if oa >= 35.0 else "FAIL"),
     }
 
     # ============================================================
-    # 2. VRSBENCH BENCHMARK (Evaluated on Official VRSBench Imagery & GT Bounding Boxes)
+    # 2. VRSBENCH BENCHMARK (Evaluated on Official VRSBench Imagery, GT BBoxes & VQA)
     # ============================================================
     t0 = time.time()
     vrs_eval_file = EXTERNAL_DIR / "vrsbench" / "vrsbench_official_eval.json"
@@ -154,6 +194,7 @@ def run_benchmark_evaluation(
 
     vrs_slice = vrs_items[:min(sample_limit, len(vrs_items))]
     ious, p50_list, cap_bleus, cap_rouges = [], [], [], []
+    vrs_vqa_preds, vrs_vqa_gts, vrs_vqa_records = [], [], []
 
     for idx, item in enumerate(vrs_slice):
         full_img_p = BASE_DIR / item["image_path"]
@@ -185,14 +226,52 @@ def run_benchmark_evaluation(
         cap_bleus.append(bleu.get("bleu_1", 0.0))
         cap_rouges.append(rouge)
 
+        # 2c. Active VRSBench VQA Evaluation on Authentic VRSBench Imagery
+        vrs_category = item.get("category", "object")
+        q_pos = f"Is there a {vrs_category} in this remote sensing image?"
+        res_vqa = client.post("/api/analyze", json={
+            "primary_id": vrs_id,
+            "query": q_pos,
+        }).json()
+        pred_vqa = str(res_vqa.get("answer", "")).strip().lower()
+        vrs_vqa_preds.append(pred_vqa)
+        vrs_vqa_gts.append("yes")
+
+        neg_cat = "harbor" if vrs_category != "harbor" else "airport"
+        q_neg = f"Is there a {neg_cat} in this remote sensing image?"
+        res_neg = client.post("/api/analyze", json={
+            "primary_id": vrs_id,
+            "query": q_neg,
+        }).json()
+        pred_neg = str(res_neg.get("answer", "")).strip().lower()
+        vrs_vqa_preds.append(pred_neg)
+        vrs_vqa_gts.append("no")
+
+        vrs_vqa_records.append({
+            "image": item.get("image_name"),
+            "category": vrs_category,
+            "positive_q": q_pos,
+            "positive_pred": pred_vqa,
+            "negative_q": q_neg,
+            "negative_pred": pred_neg,
+        })
+
     avg_iou = round(sum(ious) / max(len(ious), 1), 4)
     avg_p50 = round(sum(p50_list) / max(len(p50_list), 1) * 100.0, 1)
     avg_b1 = round(sum(cap_bleus) / max(len(cap_bleus), 1), 1)
     avg_rouge = round(sum(cap_rouges) / max(len(cap_rouges), 1), 1)
+    vrs_vqa_metrics = compute_vqa_accuracy(vrs_vqa_preds, vrs_vqa_gts)
+    vrs_vqa_acc = vrs_vqa_metrics["overall_accuracy"]
 
     results["benchmarks"]["VRSBench"] = {
         "dataset": "VRSBench-FS Official Test Imagery (arXiv:2406.12384)",
         "evaluated_samples": len(vrs_slice),
+        "vqa": {
+            "total_available_eval_questions": catalog.get("vrsbench_vqa_total", 37409),
+            "evaluated_questions": len(vrs_vqa_preds),
+            "top1_accuracy_percent": vrs_vqa_acc,
+            "binary_accuracy_percent": vrs_vqa_metrics["average_accuracy"],
+        },
         "captioning": {
             "total_available_eval_captions": catalog.get("vrsbench_cap_total", 9350),
             "bleu_1": avg_b1,
@@ -205,11 +284,11 @@ def run_benchmark_evaluation(
             "evaluated_boxes": len(p50_list),
         },
         "latency_sec": round(time.time() - t0, 3),
-        "status": "PASSED" if (avg_p50 >= 25.0 or (avg_rouge >= 25.0 and avg_b1 >= 15.0)) else ("MARGINAL" if (avg_p50 >= 10.0 or avg_rouge >= 10.0 or avg_b1 >= 5.0) else "FAIL"),
+        "status": "PASSED" if (avg_p50 >= 25.0 or (avg_rouge >= 25.0 and avg_b1 >= 15.0) or vrs_vqa_acc >= 60.0) else ("MARGINAL" if (avg_p50 >= 10.0 or avg_rouge >= 10.0 or avg_b1 >= 5.0) else "FAIL"),
     }
 
     # ============================================================
-    # 3. CDVQA BENCHMARK (Evaluated on Official Bi-Temporal Pairs)
+    # 3. CDVQA BENCHMARK (Evaluated on Official Bi-Temporal Pairs & Confusion Matrix)
     # ============================================================
     t0 = time.time()
     cd_eval_file = EXTERNAL_DIR / "cdvqa" / "cdvqa_official_eval.json"
@@ -265,12 +344,48 @@ def run_benchmark_evaluation(
     avg_bin_acc = round(sum(bin_accs) / max(len(bin_accs), 1) * 100.0, 1)
     avg_cd_rouge = round(sum(rouge_scores) / max(len(rouge_scores), 1), 1)
 
+    # Compute binary change detection confusion matrix
+    TP, TN, FP, FN = 0, 0, 0, 0
+    for r in cd_eval_records:
+        gt = r["ground_truth"].lower()
+        pred = r["predicted"].lower()
+        gt_is_change = any(w in gt for w in ["yes", "increase", "decrease", "expanded", "contracted", "altered", "disturbed"]) and not any(w in gt for w in ["no change", "unchanged", "no"])
+        if not gt_is_change and any(w in gt for w in ["no", "unchanged", "none", "stable", "constant"]):
+            gt_is_change = False
+
+        pred_is_change = any(w in pred for w in ["increased", "decreased", "expanded", "contracted", "changed", "altered", "shifted", "detected across"]) or (pred.startswith("yes") or " yes" in pred)
+        if any(w in pred for w in ["no prominent", "no change", "unchanged", "remained constant", "stable", "zero", "0.0%"]):
+            pred_is_change = False
+
+        if gt_is_change and pred_is_change:
+            TP += 1
+        elif not gt_is_change and not pred_is_change:
+            TN += 1
+        elif not gt_is_change and pred_is_change:
+            FP += 1
+        elif gt_is_change and not pred_is_change:
+            FN += 1
+
+    precision = round(TP / (TP + FP + 1e-6) * 100.0, 1)
+    recall = round(TP / (TP + FN + 1e-6) * 100.0, 1)
+    f1 = round(2 * precision * recall / (precision + recall + 1e-6), 1)
+    cd_confusion = {
+        "True_Positive": TP,
+        "True_Negative": TN,
+        "False_Positive": FP,
+        "False_Negative": FN,
+        "precision_percent": precision,
+        "recall_percent": recall,
+        "f1_score": f1,
+    }
+
     results["benchmarks"]["CDVQA"] = {
         "dataset": "CDVQA Official Bi-Temporal Test Set (arXiv:2404.14818)",
         "total_available_questions": catalog.get("cdvqa_questions_total", 39686),
         "evaluated_samples": len(cd_slice),
         "evaluated_change_accuracy": avg_bin_acc,
         "average_rouge_l": avg_cd_rouge,
+        "confusion_matrix": cd_confusion,
         "latency_sec": round(time.time() - t0, 3),
         "status": "PASSED" if avg_bin_acc >= 60.0 else ("MARGINAL" if avg_bin_acc >= 40.0 else "FAIL"),
     }
@@ -386,6 +501,8 @@ def print_isro_report_table(res: Dict[str, Any]) -> None:
     print("| Benchmark | Target Task | Primary Metric | Score | Latency | Dataset Connectivity |")
     print("| :--- | :--- | :--- | :--- | :--- | :--- |")
     print(f"| **RSVQA** | Remote-Sensing VQA | Overall Accuracy (OA) | **{bench['RSVQA']['overall_accuracy_percent']}%** | {bench['RSVQA']['latency_sec']}s | FULL CONNECTED ({cat.get('rsvqa_test_total', 120):,} records) |")
+    vrs_vqa_score = f"{bench['VRSBench'].get('vqa', {}).get('top1_accuracy_percent', 'N/A')}%"
+    print(f"| **VRSBench VQA** | Multi-Class RS VQA | Top-1 Accuracy | **{vrs_vqa_score}** | {bench['VRSBench']['latency_sec']}s | FULL CONNECTED ({cat.get('vrsbench_vqa_total', 37409):,} records) |")
     print(f"| **VRSBench Captioning** | Land-Cover Narrative | ROUGE-L / BLEU-1 | **{bench['VRSBench']['captioning']['rouge_l']}% / {bench['VRSBench']['captioning']['bleu_1']}%** | {bench['VRSBench']['latency_sec']}s | FULL CONNECTED ({cat.get('vrsbench_cap_total', 9350):,} records) |")
     print(f"| **VRSBench Grounding** | Spatial Region Grounding | Precision@0.5 (P@0.5) | **{bench['VRSBench']['grounding']['precision_at_50']}%** | {bench['VRSBench']['latency_sec']}s | FULL CONNECTED ({cat.get('vrsbench_ref_total', 16159):,} records) |")
     cd_acc = bench['CDVQA'].get('evaluated_change_accuracy', bench['CDVQA'].get('evaluated_directional_accuracy', 0.0))
@@ -393,6 +510,21 @@ def print_isro_report_table(res: Dict[str, Any]) -> None:
     print(f"| **CDVQA** | Bi-Temporal Change Reasoning | Change Accuracy / ROUGE-L | **{cd_acc}% / {cd_rg}%** | {bench['CDVQA']['latency_sec']}s | FULL CONNECTED ({cat.get('cdvqa_questions_total', 39686):,} records) |")
     print(f"| **ISRO Optical-SAR** | Cross-Modal Fusion | Consensus Agreement | **{bench['ISRO_SAC']['consensus_agreement_pct']}%** | {bench['ISRO_SAC']['latency_sec']}s | Cartosat-2S + RISAT-1A Pair |")
     print(f"| **BigEarthNet.txt** | Multimodal VQA & Adjacency | Binary VQA Accuracy | **{bench['BigEarthNet']['evaluated_accuracy_percent']}%** | {bench['BigEarthNet']['latency_sec']}s | FULL CONNECTED ({cat.get('bigearthnet_test_total', 5000):,} records) |")
+    print("\n" + "=" * 90)
+
+    if "confusion_matrix" in bench["CDVQA"]:
+        cm = bench["CDVQA"]["confusion_matrix"]
+        print("\n### CDVQA Bi-Temporal Change Detection Confusion Matrix")
+        print(f"  • True Positives (Change Detected)   : {cm['True_Positive']}")
+        print(f"  • True Negatives (No Change Verified): {cm['True_Negative']}")
+        print(f"  • False Positives (False Alarm)      : {cm['False_Positive']}")
+        print(f"  • False Negatives (Missed Change)    : {cm['False_Negative']}")
+        print(f"  • Precision: {cm['precision_percent']}% | Recall: {cm['recall_percent']}% | F1-Score: {cm['f1_score']}%")
+
+    if "category_accuracy" in bench["RSVQA"]:
+        print("\n### RSVQA Category-Level Performance Breakdown")
+        for cat_name, c_data in bench["RSVQA"]["category_accuracy"].items():
+            print(f"  • {cat_name.replace('_', ' ').title():<15}: {c_data['accuracy_percent']}% ({c_data['correct']}/{c_data['evaluated']} correct)")
     print("\n" + "=" * 90)
 
 

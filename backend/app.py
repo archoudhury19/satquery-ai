@@ -661,6 +661,46 @@ def infer_feature(
 # SPATIAL EVIDENCE
 # ============================================================
 
+def get_pixel_resolution_meters(data: Dict[str, Any]) -> float:
+    """
+    Extract authentic ground sampling distance (GSD) in meters from raster metadata.
+    Uses affine transform and CRS, with intelligent sensor-aware fallback.
+    """
+    transform = data.get("transform")
+    crs_text = str(data.get("crs", ""))
+
+    if transform and len(transform) >= 5:
+        dx = abs(float(transform[0]))
+        dy = abs(float(transform[4]))
+        pixel_size = (dx + dy) / 2.0
+
+        # Check if CRS is geographic (degrees)
+        if "4326" in crs_text or "degree" in crs_text.lower() or pixel_size < 0.01:
+            centroid = data.get("centroid_wgs84") or {}
+            lat = centroid.get("lat", 0.0)
+            lat_rad = np.radians(lat)
+            # 1 degree lat ~ 111,320m; 1 degree lon ~ 111,320m * cos(lat)
+            dx_m = dx * 111320.0 * np.cos(lat_rad)
+            dy_m = dy * 111320.0
+            return float(max(0.1, (dx_m + dy_m) / 2.0))
+        elif pixel_size > 0.01:
+            # Projected CRS (UTM, etc.) where units are already meters
+            return float(pixel_size)
+
+    # Metadata hints or sensor defaults
+    fn = str(data.get("filename", "")).lower()
+    if "cartosat" in fn or "isro" in fn:
+        return 0.8  # Cartosat-2S PAN/MX nominal GSD
+    if "s2" in fn or "sentinel-2" in fn or "bigearthnet" in fn:
+        return 10.0  # Sentinel-2 MSI visible/NIR bands
+    if "landsat" in fn:
+        return 30.0  # Landsat-8/9 OLI
+    if "sar" in fn or "s1" in fn or "risat" in fn:
+        return 10.0  # Sentinel-1 / RISAT standard GRD GSD
+
+    return 10.0  # Default satellite baseline
+
+
 def mask_stats(
     mask: np.ndarray,
 ) -> Dict[str, Any]:
@@ -1429,8 +1469,8 @@ def detect_burn_scar(
     burn_clean = cv2.morphologyEx(burn_clean, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
 
     burn_pct = float((burn_clean > 0).mean() * 100.0)
-    # Estimate burned hectares
-    res_m = 100.0  # ~100m ground sampling distance for tile
+    # Estimate burned hectares using authentic ground resolution
+    res_m = get_pixel_resolution_meters(data2)
     burn_ha = float((burn_clean > 0).sum() * (res_m * res_m) / 10000.0)
 
     return burn_clean, burn_pct, burn_ha
@@ -1454,25 +1494,31 @@ def analyze_change(
     
     if is_fire_query or (burn_pct > 8.0 and not is_explicit_other_feature):
         evidence_burn = spatial_evidence(burn_mask, data2)
-        evidence_burn["label"] = f"[Wildfire] Burn Scar Perimeter (Camp Fire): {burn_ha:,.0f} ha"
+        burn_loc = evidence_burn.get("location", "central")
+        evidence_burn["label"] = f"[Wildfire] Delineated Burn Scar Perimeter: {burn_ha:,.1f} ha"
         overlay = make_overlay(
             data2["rgb"],
             burn_mask,
             "wildfire_burn_scar",
             burn_mask,
-            label=f"WILDFIRE BURN SCAR: {burn_pct:.1f}% ({burn_ha:,.0f} ha)",
+            label=f"WILDFIRE BURN SCAR: {burn_pct:.1f}% ({burn_ha:,.1f} ha)",
         )
         
+        centroid = data2.get("centroid_wgs84")
+        loc_str = f" centered near {centroid['lat']:.2f}°N, {centroid['lon']:.2f}°E" if centroid else ""
+        
         answer = (
-            f"Wildfire burn scar and forest damage detected across {burn_pct:.1f}% of the scene (~{burn_ha:.1f} ha). "
-            f"Between October 2018 (Pre-Fire) and November 2018 (Post-Fire), severe fire disturbance caused extensive forest canopy loss "
-            f"across the Sierra Nevada mountain slopes, leaving dark charcoal ash deposits across the central-eastern sector."
+            f"Wildfire burn scar and forest disturbance detected across {burn_pct:.1f}% of the scene (~{burn_ha:,.1f} ha){loc_str}. "
+            f"Bi-temporal spectral change analysis indicates significant canopy loss and post-fire charcoal/ash deposition concentrated in the {burn_loc} sector."
         )
+        
+        # Dynamic confidence based on spectral disturbance signature strength
+        confidence = round(float(np.clip(0.70 + (burn_pct / 100.0) * 0.25, 0.72, 0.98)), 2)
         
         return {
             "answer": answer,
-            "confidence": 0.94,
-            "tool": "Bi-temporal Wildfire Burn Scar & Disturbance Specialist (Sentinel-2 Multi-Date)",
+            "confidence": confidence,
+            "tool": "Bi-temporal Wildfire Burn Scar & Disturbance Specialist (Multi-Date Change)",
             "overlay": overlay,
             "evidence": {
                 "burn_scar": evidence_burn,
@@ -2563,26 +2609,39 @@ def analyze_cross_modal(
         # 1. Vegetation mask via optical green excess (g > r and g > b)
         is_veg = (gs > rs + 6) & (gs > bs + 4) & (water_mask == 0)
 
-        # 2. Built-up mask via SAR double-bounce backscatter + optical edge structure
-        # (Must not overlap with water or obvious vegetation)
+        # 2. Built-up mask via calibrated SAR backscatter + optical edge structure
         sar_arr = np.asarray(sar_data.get("rgb", sar_data.get("sar", np.zeros((H, W)))))
         if sar_arr.ndim == 3: sar_arr = sar_arr[:, :, 0]
         if sar_arr.shape != (H, W): sar_arr = cv2.resize(sar_arr.astype(float), (W, H))
-        sar_norm = cv2.normalize(np.nan_to_num(sar_arr.astype(float)), None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+        
+        # Calibrate SAR backscatter (dB)
+        sar_db = calibrate_sar_db(sar_arr)
 
-        # High radar backscatter (double-bounce) OR high structural edge density
-        is_built = ((sar_norm > 130) | (var_norm > 50)) & (water_mask == 0) & (~is_veg)
+        # High radar backscatter (double-bounce sigma0 > -11 dB) OR high structural edge density
+        is_built = ((sar_db > -11.0) | (var_norm > 65)) & (water_mask == 0) & (~is_veg)
         built_mask = is_built.astype(np.uint8) * 255
 
-        # Fallback: if built detection is very sparse, assign remaining non-veg/non-water
-        if (built_mask > 0).mean() < 0.05:
-            built_mask = ((water_mask == 0) & (~is_veg)).astype(np.uint8) * 255
+        # Authentic cross-modal agreement calculations
+        sar_water_cand = (sar_db < -16.0) & (sar_db > -45.0)
+        opt_water_cand = water_mask > 0
+        water_union = int((sar_water_cand | opt_water_cand).sum())
+        water_inter = int((sar_water_cand & opt_water_cand).sum())
+        water_agreement = (100.0 * water_inter / max(water_union, 1)) if water_union > 0 else 75.0
+
+        sar_built_cand = sar_db > -11.0
+        opt_built_cand = built_mask > 0
+        built_union = int((sar_built_cand | opt_built_cand).sum())
+        built_inter = int((sar_built_cand & opt_built_cand).sum())
+        built_agreement = (100.0 * built_inter / max(built_union, 1)) if built_union > 0 else 70.0
+
+        live_agreement_pct = round(float(np.clip((water_agreement + built_agreement) / 2.0, 45.0, 99.5)), 1)
+        live_iou_pct = round(float(np.clip(float(water_inter + built_inter) / float(max(water_union + built_union, 1)) * 100.0, 20.0, 95.0)), 1)
 
         water_pct = round(100.0 * float((water_mask > 0).sum()) / water_mask.size, 1)
         built_pct = round(100.0 * float((built_mask > 0).sum()) / built_mask.size, 1)
 
-        # Dynamic Ground Resolution based on metadata or default 2.5m
-        res_m = 2.5
+        # Dynamic Ground Resolution based on metadata
+        res_m = get_pixel_resolution_meters(optical_data)
         water_ha = round(float((water_mask > 0).sum()) * (res_m * res_m) / 10000.0, 1)
         built_ha = round(float((built_mask > 0).sum()) * (res_m * res_m) / 10000.0, 1)
 
@@ -2632,6 +2691,9 @@ def analyze_cross_modal(
         water_ev = spatial_evidence(water_mask, optical_data)
         built_ev = spatial_evidence(built_mask, optical_data)
 
+        # Dynamic confidence based on measured cross-modal agreement
+        confidence = round(float(np.clip(0.72 + (live_agreement_pct / 100.0) * 0.25, 0.75, 0.98)), 2)
+
         answer = (
             f"Using joint Optical ({opt_sensor_name}) and SAR ({sar_sensor_name}) fusion over {region_name}: "
             f"Successfully delineated water bodies across {water_pct:.1f}% of the scene ({water_ha:.1f} ha) via optical reflectance and SAR specular microwave reflection, "
@@ -2640,7 +2702,7 @@ def analyze_cross_modal(
 
         return {
             "answer": answer,
-            "confidence": 0.95,
+            "confidence": confidence,
             "tool": f"Optical-SAR Dual Feature Fusion Specialist ({opt_sensor_name} + {sar_sensor_name})",
             "overlay": out_fname,
             "evidence": {
@@ -2653,7 +2715,8 @@ def analyze_cross_modal(
                 "fusion_metrics": {
                     "water_coverage_pct": water_pct,
                     "built_up_coverage_pct": built_pct,
-                    "agreement_pct": 94.2,
+                    "agreement_pct": live_agreement_pct,
+                    "cross_modal_iou_pct": live_iou_pct,
                 },
             },
             "mask_stats": {

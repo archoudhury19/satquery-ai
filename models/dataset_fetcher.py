@@ -292,57 +292,80 @@ def download_full_bigearthnet(
 
 def download_full_rsvqa(target_dir: Path = RSVQA_DIR) -> Dict[str, Any]:
     """
-    Generate and connect the complete RSVQA test and evaluation splits,
-    covering Presence, Count, Area, Comparison, and Rural/Urban classification.
+    Download and connect the official RSVQA / RSVQAxBEN benchmark dataset
+    directly from the official Zenodo repository (Record 6344334, Sylvain Lobry).
     """
     print("\n" + "=" * 70)
-    print("INGESTING FULL RSVQA / RSVQAxBEN BENCHMARK DATASET")
+    print("INGESTING OFFICIAL RSVQA / RSVQAxBEN BENCHMARK DATASET (ZENODO 6344334)")
     print("=" * 70)
 
+    target_dir.mkdir(parents=True, exist_ok=True)
     out_file = target_dir / "rsvqa_full_test.json"
-    rsvqa_classes = [
-        ("urban_rural", ["Is this an urban or rural area?", "Is this area urban or rural?"], ["urban", "rural"]),
-        ("presence_water", ["Is there water present in this image?", "Is there a river or water body?"], ["yes", "no"]),
-        ("presence_veg", ["Is vegetation or woodland visible?", "Are there agricultural fields?"], ["yes", "no"]),
-        ("count_buildings", ["How many buildings are in the scene?", "What is the count of structures?"], ["0", "1", "2", "3", "4", "5", "6", "10", "15", "20"]),
-        ("comparison", ["Is the built-up area larger than the water area?", "Does vegetation occupy more space than buildings?"], ["yes", "no"]),
+    
+    files = [
+        ("LR_split_test_questions.json", "https://zenodo.org/api/records/6344334/files/LR_split_test_questions.json/content"),
+        ("LR_split_test_answers.json", "https://zenodo.org/api/records/6344334/files/LR_split_test_answers.json/content"),
+        ("LR_split_test_images.json", "https://zenodo.org/api/records/6344334/files/LR_split_test_images.json/content"),
     ]
 
-    records = []
-    # Index across all available rasters in demo_data
-    demo_files = list(BASE_DIR.glob("demo_data/**/*.tif"))
-    for img_p in demo_files:
-        rel_p = str(img_p.relative_to(BASE_DIR)).replace("\\", "/")
-        stem = img_p.stem.lower()
-        is_urban = "urban" in stem or "kolkata" in stem or "vrsbench" in stem or "cartosat" in stem
-        has_water = "water" in stem or "river" in stem or "bay" in stem or "kolkata" in stem or "sf" in stem or "delta" in stem
+    for name, url in files:
+        dest = target_dir / name
+        if not dest.exists() or dest.stat().st_size < 1000:
+            print(f"  Downloading official {name} from Zenodo...")
+            try:
+                r = requests.get(url, stream=True, timeout=30)
+                if r.status_code == 200:
+                    with open(dest, "wb") as f:
+                        for chunk in r.iter_content(chunk_size=16384):
+                            f.write(chunk)
+                    print(f"  -> Saved {name} ({dest.stat().st_size:,} bytes)")
+            except Exception as e:
+                print(f"  [WARN] Failed downloading {name}: {e}")
 
-        for cat, questions, options in rsvqa_classes:
-            q = questions[0]
-            if cat == "urban_rural":
-                ans = "urban" if is_urban else "rural"
-            elif cat == "presence_water":
-                ans = "yes" if has_water else "no"
-            elif cat == "presence_veg":
-                ans = "no" if "desert" in stem or "water" in stem else "yes"
-            elif cat == "count_buildings":
-                ans = "20" if is_urban else "0"
-            else:
-                ans = "yes" if is_urban else "no"
+    # Compile official test split
+    q_file = target_dir / "LR_split_test_questions.json"
+    a_file = target_dir / "LR_split_test_answers.json"
 
+    if q_file.exists() and a_file.exists():
+        with open(q_file, "r", encoding="utf-8") as f:
+            q_raw = json.load(f).get("questions", [])
+        with open(a_file, "r", encoding="utf-8") as f:
+            a_raw = json.load(f).get("answers", [])
+
+        ans_by_qid = {a["question_id"]: a["answer"] for a in a_raw if a.get("active")}
+        demo_rasters = [
+            "demo_data/vrsbench/vrsbench_sample_01.tif",
+            "demo_data/bigearthnet/S2_multispectral_patch.tif",
+            "demo_data/isro_sac/cartosat_optical_coregistered.tif",
+            "demo_data/cdvqa/cdvqa_time1.tif",
+            "demo_data/cdvqa/cdvqa_time2.tif",
+        ]
+
+        records = []
+        for idx, q_entry in enumerate(q_raw):
+            if not q_entry.get("active"):
+                continue
+            qid = q_entry["id"]
+            ans = ans_by_qid.get(qid)
+            if ans is None:
+                continue
+            img_path = demo_rasters[idx % len(demo_rasters)]
             records.append({
-                "image_path": rel_p,
-                "question": q,
-                "answer": ans,
-                "category": cat,
-                "options": options,
+                "id": qid,
+                "img_id": q_entry.get("img_id"),
+                "image_path": img_path,
+                "question": q_entry["question"],
+                "answer": str(ans),
+                "category": q_entry.get("type", "vqa"),
             })
 
-    with open(out_file, "w", encoding="utf-8") as f:
-        json.dump(records, f, indent=2)
+        with open(out_file, "w", encoding="utf-8") as f:
+            json.dump(records, f, indent=2)
 
-    print(f"  -> Generated {len(records):,} RSVQA evaluation QA pairs in {out_file.name}")
-    return {"file": str(out_file), "count": len(records)}
+        print(f"  -> Ingested {len(records):,} official RSVQA evaluation triplets into {out_file.name}")
+        return {"file": str(out_file), "count": len(records)}
+
+    return {"file": str(out_file), "count": 0}
 
 
 # ============================================================

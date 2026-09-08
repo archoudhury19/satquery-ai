@@ -262,4 +262,8 @@ def generate_rs_caption(
         "standard": "VRSBench & BigEarthNet.txt Remote Sensing Standard",
     }
 
-    return full_caption, 0.93, diagnostics
+    # Dynamic confidence based on spectral distinctness and land-cover classification clarity
+    dominant_pct = max(built_pct, veg_pct, water_pct, desert_pct, bare_pct)
+    dynamic_conf = round(float(np.clip(0.72 + (dominant_pct / 100.0) * 0.22, 0.75, 0.96)), 2)
+
+    return full_caption, dynamic_conf, diagnostics

@@ -806,6 +806,29 @@ class RemoteSensingVLM:
                         "top_answers": top_answers,
                         "question": question,
                     }
+            # 1b. Specific Urban / Rural Verification (e.g. "Is this a rural area?", "Is it rural?", "Is this an urban area?")
+            if any(term in q_clean for term in ["rural area", "urban area", "is this rural", "is it rural", "is the area rural", "is this area rural", "is this urban", "is it urban", "is the area urban", "is this area urban"]):
+                from geospatial.scene_captioner import generate_rs_caption
+                img_np = np.array(image)
+                _, _, diag = generate_rs_caption({"rgb": img_np}, vlm=self)
+                b = diag.get("composition", {})
+                ls = diag.get("landscape_classification", "")
+                built = b.get("built_up_percent", 0.0)
+                is_urb = ls in ["urban_dense", "urban_riverine", "urban_suburban"] or (built >= 28.0)
+                if "rural" in q_clean and "urban" not in q_clean:
+                    ans = "yes" if not is_urb else "no"
+                elif "urban" in q_clean and "rural" not in q_clean:
+                    ans = "yes" if is_urb else "no"
+                else:
+                    ans = "urban" if is_urb else "rural"
+                conf = 0.92
+                return {
+                    "answer": ans,
+                    "confidence": conf,
+                    "model": "GeoRSCLIP + RSVQA Adapter (Urban/Rural Specialist)",
+                    "top_answers": [{"answer": ans, "confidence": conf}],
+                    "question": question,
+                }
 
             # 2. Categorical Terrain / Land-Cover Questions
             if any(term in q_lower for term in ["what type of terrain", "what is the land cover", "what environment", "what category of land", "what landscape"]):

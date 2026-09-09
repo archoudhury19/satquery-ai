@@ -4351,8 +4351,27 @@ def _handle_rs_vqa(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
     feature = params.get("feature", ctx["feature"])
     req = ctx["req"]
     q_low = (req.query or "").lower()
-    is_urban_rural = ("urban" in q_low and "rural" in q_low) or any(
-        w in q_low for w in ["is it urban", "is this urban", "is it rural", "is this rural", "is the area urban", "is this area urban", "whether the area is urban", "area is urban or rural"]
+    urban_rural_terms = [
+        "urban or rural", "rural or urban", "urban vs rural", "rural vs urban",
+        "is it urban", "is this urban", "is it rural", "is this rural",
+        "is the area urban", "is this area urban", "whether the area is urban",
+        "is the area rural", "is this area rural", "whether the area is rural",
+        "is this a rural", "is it a rural", "is this an urban", "is it an urban",
+        "rural area", "urban area", "rural zone", "urban zone", "rural region", "urban region",
+        "rural environment", "urban environment", "rural terrain", "urban terrain",
+        "rural landscape", "urban landscape", "rural settlement",
+        "whether it is rural", "whether its rural", "whether it's rural",
+        "whether it is urban", "whether its urban", "whether it's urban",
+        "check if rural", "check if urban", "detect if rural", "detect if urban",
+        "detect whether it is rural", "detect whether its a rural", "detect whether it's a rural",
+        "check whether the area is rural", "check whether the area is urban",
+        "whether its a rural", "whether it's a rural"
+    ]
+    is_urban_rural = (
+        ("urban" in q_low and "rural" in q_low)
+        or any(w in q_low for w in urban_rural_terms)
+        or ("rural" in q_low and any(w in q_low for w in ["area", "is", "whether", "detect", "check", "classify", "zone", "tell", "scene"]))
+        or ("urban" in q_low and any(w in q_low for w in ["is this", "is it", "is the area", "whether", "classify"]))
     )
     if is_urban_rural:
         try:
@@ -4367,32 +4386,42 @@ def _handle_rs_vqa(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
             is_urban = ls in ["urban_dense", "urban_riverine", "urban_suburban"] or (built_pct >= 28.0)
             zone_type = "urban" if is_urban else "rural"
 
+            is_asking_rural = ("rural" in q_low and not ("urban" in q_low and " or " in q_low))
+            is_asking_urban = ("urban" in q_low and not ("rural" in q_low and " or " in q_low))
+
+            if is_asking_rural:
+                prefix = "Yes, this is a rural area. " if not is_urban else "No, this is an urban area. "
+            elif is_asking_urban:
+                prefix = "Yes, this is an urban area. " if is_urban else "No, this is a rural area. "
+            else:
+                prefix = "Urban. " if is_urban else "Rural. "
+
             if is_urban:
                 full_ans = (
-                    f"Urban. The satellite observation captures a predominantly urban area, "
+                    f"{prefix}The satellite observation captures a predominantly urban area, "
                     f"characterized by concentrated built-up fabric ({built_pct:.1f}% built-up structures) "
                     f"and arterial transportation infrastructure, contrasting with {veg_pct:.1f}% vegetative cover."
                 )
             elif ls == "forest_woodland" or veg_pct >= 40.0:
                 full_ans = (
-                    f"Rural. The satellite observation captures an open rural landscape, "
+                    f"{prefix}The satellite observation captures an open rural landscape, "
                     f"dominated by natural vegetative canopy and agricultural plots ({veg_pct:.1f}% vegetation), "
                     f"with minimal built-up infrastructure ({built_pct:.1f}% built-up)."
                 )
             elif ls == "barren_desert" or bare_pct >= 50.0:
                 full_ans = (
-                    f"Rural. The satellite observation captures an uninhabited arid rural wilderness, "
+                    f"{prefix}The satellite observation captures an uninhabited arid rural wilderness, "
                     f"dominated by exposed bare ground and undulating sand dunes ({bare_pct:.1f}% bare/desert terrain), "
                     f"with no significant urban settlements ({built_pct:.1f}% built-up)."
                 )
             elif ls in ["coastal_marine", "riverine_water"] or water_pct >= 50.0:
                 full_ans = (
-                    f"Rural / Natural Aquatic. The satellite observation captures an open natural water and coastal environment "
+                    f"{prefix}The satellite observation captures an open natural water and coastal environment "
                     f"({water_pct:.1f}% water bodies), with minimal urban development ({built_pct:.1f}% built-up)."
                 )
             else:
                 full_ans = (
-                    f"Rural. The satellite observation indicates an open rural terrain, "
+                    f"{prefix}The satellite observation indicates an open rural terrain, "
                     f"dominated by natural land-cover features, with minimal built-up infrastructure ({built_pct:.1f}% built-up)."
                 )
 

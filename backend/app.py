@@ -4402,7 +4402,7 @@ def _handle_rs_vqa(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
                     f"characterized by concentrated built-up fabric ({built_pct:.1f}% built-up structures) "
                     f"and arterial transportation infrastructure, contrasting with {veg_pct:.1f}% vegetative cover."
                 )
-            elif ls == "forest_woodland" or veg_pct >= 40.0:
+            elif ls in ["forest_woodland", "agricultural"] or veg_pct >= 40.0:
                 full_ans = (
                     f"{prefix}The satellite observation captures an open rural landscape, "
                     f"dominated by natural vegetative canopy and agricultural plots ({veg_pct:.1f}% vegetation), "

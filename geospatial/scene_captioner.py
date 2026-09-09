@@ -75,14 +75,33 @@ def generate_rs_caption(
     g = rgb[:, :, 1].astype(float)
     b = rgb[:, :, 2].astype(float)
 
+    # Check if multispectral NIR band is present
+    has_nir = False
+    ndvi = None
+    if isinstance(data, dict) and "bands" in data and isinstance(data["bands"], dict):
+        if "nir" in data["bands"] and "red" in data["bands"]:
+            try:
+                nir_f = data["bands"]["nir"].astype(float)
+                red_f = data["bands"]["red"].astype(float)
+                denom = np.maximum(nir_f + red_f, 1.0)
+                ndvi = (nir_f - red_f) / denom
+                has_nir = True
+            except Exception:
+                pass
+
     # Water: low brightness, blue-green dominance or deep absorption, plus sediment water
-    # (Catches clear water, ocean, and turbid river waterways like the Hooghly)
+    # (Catches clear water, ocean, and turbid river waterways like the Hooghly while avoiding green vegetation false-positives)
     is_water = (
-        (((b > r + 2) | (g > r + 4)) & (r < 110) & (g < 125) & (0.299*r + 0.587*g + 0.114*b < 115))
-        | ((r < 55) & (g < 65) & (b < 75))
+        (((b > r + 2) | ((g > r + 4) & (g <= b + 14))) & (r < 110) & (g < 125) & (0.299*r + 0.587*g + 0.114*b < 115))
+        | ((r < 55) & (g < 65) & (b < 75) & (g <= b + 10))
     )
-    # Vegetation: green peak
+    if has_nir:
+        is_water = is_water & (ndvi < 0.12)
+
+    # Vegetation: green peak or high NDVI
     is_veg = (g > r + 3) & (g > b + 1) & (~is_water)
+    if has_nir:
+        is_veg = (is_veg | (ndvi > 0.25)) & (~is_water)
     # True desert sand dunes: high warm reflectance characteristic of sand ergs
     is_desert = (r > 165) & (g > 135) & (b > 90) & (r >= b + 15) & (~is_water) & (~is_veg)
     # Built-up: urban fabric, structures, rooftops, and arterial roads

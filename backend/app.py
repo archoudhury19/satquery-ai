@@ -3794,7 +3794,7 @@ def load_demo_sample(req: LoadDemoRequest):
         },
         "real_sf": {
             "primary": BASE_DIR / "demo_data/real_world_satellite/real_san_francisco_optical.tif",
-            "secondary": None,
+            "secondary": BASE_DIR / "demo_data/real_world_satellite/real_san_francisco_sar.tif",
             "title": "Real Internet Satellite: San Francisco Bay High-Res Optical (COG)",
         },
         "real_sentinel": {
@@ -4383,7 +4383,7 @@ def _handle_rs_vqa(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
             water_pct = b["water_percent"]
             bare_pct = round(b["bare_percent"] + b["desert_percent"], 1)
 
-            is_urban = ls in ["urban_dense", "urban_riverine", "urban_suburban"] or (built_pct >= 28.0)
+            is_urban = ls in ["urban_dense", "urban_riverine", "urban_suburban"] or (built_pct >= 24.0)
             zone_type = "urban" if is_urban else "rural"
 
             is_asking_rural = ("rural" in q_low and not ("urban" in q_low and " or " in q_low))

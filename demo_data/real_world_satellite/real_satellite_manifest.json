@@ -3,30 +3,30 @@
     {
       "id": "san_francisco_bay_optical",
       "title": "San Francisco Bay Coastal & Urban Infrastructure (Real High-Res Optical)",
-      "modality": "High-Resolution Optical RGB (0.5m)",
-      "description": "Real high-resolution aerial/satellite orthophoto of urban coast, port facilities, and bay water.",
-      "url": "https://raw.githubusercontent.com/cogeotiff/rio-tiler/master/tests/fixtures/cog_rgb.tif",
+      "modality": "Sentinel-2 MSI Level-2A (10m True Color + NIR)",
+      "description": "Authentic high-resolution optical scene of San Francisco Downtown, Embarcadero, Bay Bridge, and bay water.",
+      "url": "https://sentinel-cogs.s3.us-west-2.amazonaws.com/sentinel-s2-l2a-cogs/10/S/EG/2024/8/S2B_10SEG_20240816_0_L2A/TCI.tif",
       "filename": "real_san_francisco_optical.tif",
       "category": "urban_coastal",
       "path": "C:\\SatQueryMVP\\satquery-ai\\demo_data\\real_world_satellite\\real_san_francisco_optical.tif",
-      "width": 383,
-      "height": 232,
-      "bands": 3,
-      "crs": "EPSG:26913"
+      "width": 1024,
+      "height": 1024,
+      "bands": 4,
+      "crs": "EPSG:32610"
     },
     {
-      "id": "sentinel1_alps_sar_amplitude",
-      "title": "Sentinel-1 C-Band SAR Surface Backscatter (Real Copernicus S1)",
-      "modality": "Sentinel-1 SAR VV (10m Calibrated Backscatter)",
-      "description": "Real Copernicus Sentinel-1 radar backscatter measuring surface roughness and water boundaries.",
-      "url": "https://raw.githubusercontent.com/rasterio/rasterio/master/tests/data/RGB.byte.tif",
-      "filename": "real_sentinel1_sar_alps.tif",
+      "id": "san_francisco_bay_sar",
+      "title": "San Francisco Bay Sentinel-1 SAR Dual-Pol Backscatter (VV/VH)",
+      "modality": "Sentinel-1 RTC SAR Dual-Polarization (10m)",
+      "description": "Authentic Copernicus Sentinel-1 RTC radar backscatter measuring surface roughness, urban double-bounce, and water boundaries.",
+      "url": "https://planetarycomputer.microsoft.com/api/stac/v1/collections/sentinel-1-rtc",
+      "filename": "real_san_francisco_sar.tif",
       "category": "sar_radar",
-      "path": "C:\\SatQueryMVP\\satquery-ai\\demo_data\\real_world_satellite\\real_sentinel1_sar_alps.tif",
-      "width": 791,
-      "height": 718,
+      "path": "C:\\SatQueryMVP\\satquery-ai\\demo_data\\real_world_satellite\\real_san_francisco_sar.tif",
+      "width": 1024,
+      "height": 1024,
       "bands": 3,
-      "crs": "EPSG:32618"
+      "crs": "EPSG:32610"
     }
   ]
 }

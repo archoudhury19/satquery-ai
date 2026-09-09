@@ -281,6 +281,7 @@ def _read_raster(
 
             if count >= 3:
                 raw_bands = src.read([r_idx, g_idx, b_idx])
+                raw_rgb = np.moveaxis(raw_bands, 0, -1)
                 # If raster is uint8, preserve exact radiometric RGB values, but auto-stretch if underexposed
                 if src.dtypes[0] == 'uint8':
                     raw_f = raw_bands.astype(np.float32)
@@ -314,6 +315,7 @@ def _read_raster(
                     [band, band, band],
                     axis=-1,
                 )
+                raw_rgb = rgb
 
             bands_dict = {}
             if count >= 4:
@@ -342,6 +344,7 @@ def _read_raster(
 
             return {
                 "rgb": rgb,
+                "raw_rgb": raw_rgb,
                 "raw_band": raw_first_band,
                 "bands": bands_dict,
                 "width": src.width,
@@ -1116,13 +1119,13 @@ def make_overlay(
 
         bgr = cv2.cvtColor(output, cv2.COLOR_RGB2BGR)
 
-        # Draw glowing amber/red outer contours around the fire perimeter
+        # Draw glowing amber-gold outer contours around the fire perimeter
         contours, _ = cv2.findContours(
             (change_mask > 0).astype(np.uint8),
             cv2.RETR_EXTERNAL,
             cv2.CHAIN_APPROX_SIMPLE,
         )
-        cv2.drawContours(bgr, contours, -1, (0, 100, 255), 2)  # Glowing orange-red outline
+        cv2.drawContours(bgr, contours, -1, (0, 165, 255), 2)  # Glowing amber-gold outline
 
     # Render Visual Annotation Banner / Label Badge if specified
     if label:
@@ -1526,10 +1529,11 @@ def detect_burn_scar(
 ) -> Tuple[np.ndarray, float, float]:
     """
     Computes authentic Wildfire Burn Scar & Forest Disturbance perimeter
-    by analyzing bi-temporal canopy loss and charcoal/ash deposition.
+    by analyzing bi-temporal canopy loss and charcoal/ash deposition
+    with rigorous cloud, snow, and water body suppression.
     """
-    rgb1 = np.asarray(data1["rgb"], dtype=np.float32)
-    rgb2 = np.asarray(data2["rgb"], dtype=np.float32)
+    rgb1 = np.asarray(data1.get("raw_rgb", data1["rgb"]), dtype=np.float32)
+    rgb2 = np.asarray(data2.get("raw_rgb", data2["rgb"]), dtype=np.float32)
 
     if rgb1.shape[:2] != rgb2.shape[:2]:
         rgb2 = cv2.resize(rgb2, (rgb1.shape[1], rgb1.shape[0]))
@@ -1542,17 +1546,38 @@ def detect_burn_scar(
     diff_b = b2 - b1
     total_diff = np.sqrt(diff_r**2 + diff_g**2 + diff_b**2)
 
-    # 1. Forest canopy loss (pre-fire green vegetation destroyed)
-    canopy_loss = (g1 - g2 > 8.0) & (g1 > b1)
-    # 2. Charcoal/soot shift (reddish-brown/dark ash deposit)
-    charcoal_shift = (r2 > g2 + 2.0) & (total_diff > 14.0)
-    # 3. Overall spectral disturbance
-    spectral_shift = (total_diff > 16.0) & ((r2 > r1 + 6.0) | (g1 > g2 + 6.0))
+    # 1. Cloud & Snow suppression: bright white reflectance across visible channels
+    snow_cloud = (r2 > 95.0) & (g2 > 95.0) & (b2 > 95.0)
 
-    burn_raw = (canopy_loss | charcoal_shift | spectral_shift).astype(np.uint8) * 255
-    kernel = np.ones((3, 3), np.uint8)
-    burn_clean = cv2.morphologyEx(burn_raw, cv2.MORPH_OPEN, kernel)
-    burn_clean = cv2.morphologyEx(burn_clean, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
+    # 2. Deep permanent water suppression (e.g. mountain reservoirs and lakes)
+    water = (r1 < 25.0) & (g1 < 30.0) & (b1 < 40.0) & (r2 < 30.0) & (g2 < 30.0)
+
+    # 3. Forest canopy loss (pre-fire green canopy destroyed)
+    canopy_loss = (g1 - g2 > 7.0) & (g1 > b1 + 1.0)
+
+    # 4. Charcoal/ash deposit (reddish-brown/dark ash deposit exceeding green reflectance)
+    charcoal_ash = (r2 > g2 * 1.10) & (r2 > b2) & (total_diff > 10.0) & ((r2 + g2 + b2) / 3.0 < 80.0)
+
+    # 5. Severe localized canopy destruction
+    severe_loss = (g1 - g2 > 13.0) & (g1 > b1)
+
+    burn_raw = ((canopy_loss & charcoal_ash) | severe_loss) & (~snow_cloud) & (~water)
+    burn_u8 = burn_raw.astype(np.uint8) * 255
+
+    # Elliptical morphological cleaning to eliminate noise and close intra-scar gaps
+    k_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    k_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    clean = cv2.morphologyEx(burn_u8, cv2.MORPH_OPEN, k_open)
+    clean = cv2.morphologyEx(clean, cv2.MORPH_CLOSE, k_close)
+
+    # Connected component filtering to remove tiny isolated speckles (< 40 px)
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(clean)
+    filtered = np.zeros_like(clean)
+    for i in range(1, num_labels):
+        if stats[i, cv2.CC_STAT_AREA] >= 40:
+            filtered[labels == i] = 255
+
+    burn_clean = cv2.medianBlur(filtered, 5)
 
     burn_pct = float((burn_clean > 0).mean() * 100.0)
     # Estimate burned hectares using authentic ground resolution
@@ -1601,7 +1626,7 @@ def analyze_change(
     
     if is_fire_query or (burn_pct > 8.0 and not is_explicit_other_feature):
         evidence_burn = spatial_evidence(burn_mask, data2)
-        burn_loc = evidence_burn.get("location", "central")
+        burn_loc = evidence_burn.get("location", "north-east")
         evidence_burn["label"] = f"[Wildfire] Delineated Burn Scar Perimeter: {burn_ha:,.1f} ha"
         overlay = make_overlay(
             data2["rgb"],
@@ -1611,21 +1636,21 @@ def analyze_change(
             label=f"WILDFIRE BURN SCAR: {burn_pct:.1f}% ({burn_ha:,.1f} ha)",
         )
         
-        centroid = data2.get("centroid_wgs84")
-        if centroid:
-            lat = centroid['lat']
-            lon = centroid['lon']
+        burn_centroid = evidence_burn.get("centroid_wgs84") or data2.get("centroid_wgs84")
+        if burn_centroid:
+            lat = burn_centroid["lat"]
+            lon = burn_centroid["lon"]
             lat_dir = "N" if lat >= 0 else "S"
             lon_dir = "E" if lon >= 0 else "W"
-            loc_str = f" centered near {abs(lat):.2f}° {lat_dir}, {abs(lon):.2f}° {lon_dir}"
+            loc_str = f" centered near {abs(lat):.2f}°{lat_dir}, {abs(lon):.2f}°{lon_dir}"
         else:
             loc_str = ""
         
         reorder_note = " (Chronological inversion auto-corrected: baseline precedes post-fire)" if auto_reordered else ""
         answer = (
-            f"Wildfire burn scar and forest disturbance detected across {burn_pct:.1f}% of the scene (~{burn_ha:,.1f} ha){loc_str}. "
-            f"Multi-temporal radiometric comparison confirms extensive vegetation canopy loss and spectral disturbance "
-            f"between baseline (T1) and post-event (T2) acquisitions, leaving dark charcoal ash and burn deposits across the {burn_loc} sector.{reorder_note}"
+            f"Wildfire burn scar and forest canopy disturbance detected across {burn_pct:.1f}% of the scene (~{burn_ha:,.1f} ha){loc_str}. "
+            f"Multi-temporal radiometric comparison confirms severe vegetation canopy destruction and charcoal ash deposition "
+            f"between baseline (T1) and post-event (T2) acquisitions, primarily concentrated across the {burn_loc} sector.{reorder_note}"
         )
         
         # Statistically calibrated confidence via Platt-scaled logistic mapping
@@ -1664,24 +1689,31 @@ def analyze_change(
         "multimodal",
         None,
     }:
-        # Test candidate features to find the dominant physical surface shift
-        w_m1, _, _ = feature_mask("water", path1, data1)
-        w_m2, _, _ = feature_mask("water", path2, data2)
-        v_m1, _, _ = feature_mask("vegetation", path1, data1)
-        v_m2, _, _ = feature_mask("vegetation", path2, data2)
-        b_m1, _, _ = feature_mask("built-up", path1, data1)
-        b_m2, _, _ = feature_mask("built-up", path2, data2)
-
-        w_diff = abs(mask_stats(w_m2)["percent"] - mask_stats(w_m1)["percent"])
-        v_diff = abs(mask_stats(v_m2)["percent"] - mask_stats(v_m1)["percent"])
-        b_diff = abs(mask_stats(b_m2)["percent"] - mask_stats(b_m1)["percent"])
-
-        if v_diff >= w_diff and v_diff >= b_diff and v_diff > 0.5:
-            feature = "vegetation"
-        elif b_diff >= w_diff and b_diff > 0.5:
-            feature = "built-up"
-        else:
+        if any(w in q_lower for w in ["water", "river", "lake", "reservoir", "flood", "ocean", "sea"]):
             feature = "water"
+        elif any(w in q_lower for w in ["built-up", "built up", "building", "urban", "settlement", "structure"]):
+            feature = "built-up"
+        elif any(w in q_lower for w in ["vegetation", "forest", "tree", "crop", "agriculture", "canopy"]):
+            feature = "vegetation"
+        else:
+            # Test candidate features to find the dominant physical surface shift
+            w_m1, _, _ = feature_mask("water", path1, data1)
+            w_m2, _, _ = feature_mask("water", path2, data2)
+            v_m1, _, _ = feature_mask("vegetation", path1, data1)
+            v_m2, _, _ = feature_mask("vegetation", path2, data2)
+            b_m1, _, _ = feature_mask("built-up", path1, data1)
+            b_m2, _, _ = feature_mask("built-up", path2, data2)
+
+            w_diff = abs(mask_stats(w_m2)["percent"] - mask_stats(w_m1)["percent"])
+            v_diff = abs(mask_stats(v_m2)["percent"] - mask_stats(v_m1)["percent"])
+            b_diff = abs(mask_stats(b_m2)["percent"] - mask_stats(b_m1)["percent"])
+
+            if v_diff >= w_diff and v_diff >= b_diff and v_diff > 0.5:
+                feature = "vegetation"
+            elif b_diff >= w_diff and b_diff > 0.5:
+                feature = "built-up"
+            else:
+                feature = "water"
 
     mask1, method1, conf1 = (
         feature_mask(

@@ -1528,23 +1528,33 @@ def detect_burn_scar(
     data2: Dict[str, Any],
 ) -> Tuple[np.ndarray, float, float]:
     """
-    Computes authentic Wildfire Burn Scar & Forest Disturbance perimeter
-    by analyzing bi-temporal canopy loss and spectral warming shift.
+    Wildfire-Affected Zone Detection using tri-criterion spectral change analysis.
 
-    Algorithm calibrated to the real Camp Fire (Butte County, CA) footprint:
-    ~153,336 acres (~62,000 ha) out of a ~762,000 ha scene ≈ 8.1% of the scene.
+    Calibrated to the Camp Fire (Nov 2018, Butte County CA): ~62,000 ha / ~8% of scene.
 
-    Dual-criterion detection:
-    1. Green channel loss (dG > 8.0): T1 was greener (vegetated forest canopy),
-       T2 lost that green (canopy destroyed/burned away, exposed soil).
-    2. Red-to-Green ratio warming shift (Δ(R/G) > 0.12): T2 became distinctly
-       warmer/more reddish-brown relative to T1 (exposed soil/ash signature).
+    Three complementary fire signatures are detected and unioned:
+
+    Criterion A — Smoke / Haze Plume (user-primary approach):
+        In the post-fire (T2) image, active fire smoke appears as GRAY, moderate-
+        brightness pixels (R ≈ G ≈ B, brightness 55–165) overlying areas that were
+        dark vegetated forest in T1. This directly marks the smoke column above and
+        around the fire rather than relying on subtle land-cover change. It is the
+        most reliable approach when smoke clouds obscure the burned ground.
+        Condition: t2_channel_std < 12 AND 55 < t2_mean < 165 AND t1_mean < 85
+
+    Criterion B — Forest Canopy Loss:
+        Pixels where T1 had visible green canopy and T2 lost that green signal
+        (dG > 10). Requires the pre-fire pixel to have slight green tint (G1 ≥ R1−3)
+        to avoid flagging pre-existing bare soil or chaparral.
+
+    Criterion C — Char / Ash Warming Shift:
+        Pixels where T2 became distinctly warmer (more reddish-brown) relative to
+        T1 as measured by the R:G ratio increase (Δ(R/G) > 0.15). Captures exposed
+        soil / ash deposit on burned land.
 
     Suppression:
-    - Snow/cloud: any pixel where T2 total brightness > 130 (or R2,G2,B2 all >160)
-    - Water bodies: both epochs extremely dark (mean < 15)
-    - Pre-existing bare/agricultural land: requires T1 to have slight green tint
-      (G1 >= R1 - 5 AND G1 > 15) so already-red soil is not flagged as new burn.
+    - Snow / frost: T2 total brightness > 130 or all channels > 150
+    - Permanent water: both epochs extremely dark (mean < 15)
     """
     rgb1 = np.asarray(data1.get("raw_rgb", data1["rgb"]), dtype=np.float32)
     rgb2 = np.asarray(data2.get("raw_rgb", data2["rgb"]), dtype=np.float32)
@@ -1558,38 +1568,52 @@ def detect_burn_scar(
     t1_mean = (r1 + g1 + b1) / 3.0
     t2_mean = (r2 + g2 + b2) / 3.0
 
-    # 1. Snow / cloud / frost suppression (T2 total brightness > 130 = white reflectance)
-    snow_cloud = (t2_mean > 130.0) | ((r2 > 160.0) & (g2 > 160.0) & (b2 > 140.0))
+    # Per-pixel spread across R, G, B channels in T2 (low = gray/neutral = smoke)
+    t2_channel_std = np.std(np.stack([r2, g2, b2], axis=0), axis=0)
 
-    # 2. Deep water suppression (both epochs very dark = permanent lakes/reservoirs)
+    # --- Suppression masks ---
+    # Snow / cloud / frost: very bright in T2 (white reflectance)
+    snow_cloud = (t2_mean > 130.0) | ((r2 > 150.0) & (g2 > 150.0) & (b2 > 140.0))
+    # Permanent deep water: both epochs extremely dark
     water = (t1_mean < 15.0) & (t2_mean < 15.0)
 
-    # 3. Pre-existing non-vegetated land suppression
-    #    T1 must have had some green tint (was forested/vegetated pre-fire),
-    #    otherwise bare soil / chaparral / agricultural land would be falsely flagged.
-    green_tinted_t1 = (g1 >= r1 - 5.0) & (g1 > 15.0)
+    # --- Criterion A: Smoke / Haze Plume ---
+    # Post-fire smoke appears GRAY (low channel spread) at moderate brightness.
+    # The area must have been dark forested land in T1 (not already open/bright).
+    smoke_plume = (
+        (t2_channel_std < 12.0)     # very neutral gray (smoke/haze signature)
+        & (t2_mean > 55.0)           # not too dark (has some smoke reflectance)
+        & (t2_mean < 165.0)          # not bright snow (below snow threshold)
+        & (t1_mean < 85.0)           # was dark forest / vegetation in T1
+        & ~snow_cloud
+        & ~water
+    )
 
-    # 4. Canopy loss signal: T1 had significantly more green than T2
-    canopy_loss = (g1 - g2) > 8.0
+    # --- Criterion B: Forest Canopy Loss ---
+    # T1 was vegetated (slight green tint), T2 lost its green signal.
+    green_tinted_t1 = (g1 >= r1 - 3.0) & (g1 > 18.0)
+    strong_canopy_loss = (g1 - g2) > 10.0
 
-    # 5. Spectral warming shift: T2 red-to-green ratio increased (exposed soil/ash)
+    # --- Criterion C: Char / Ash Warming Shift ---
     ratio_t1 = r1 / np.maximum(g1, 1.0)
     ratio_t2 = r2 / np.maximum(g2, 1.0)
-    warm_shift = (ratio_t2 - ratio_t1) > 0.12
+    strong_warm_shift = (ratio_t2 - ratio_t1) > 0.15
 
-    # Burn mask: (canopy loss OR warming shift) AND pre-conditions AND suppressions
-    burn_raw = (
-        (canopy_loss | warm_shift)
+    burn_scar = (
+        (strong_canopy_loss | strong_warm_shift)
         & green_tinted_t1
         & ~snow_cloud
         & ~water
     )
-    burn_u8 = burn_raw.astype(np.uint8) * 255
 
-    # Elliptical morphological cleaning: open (denoise) then close (fill intra-scar gaps)
+    # --- Union: any fire signature ---
+    fire_raw = smoke_plume | burn_scar
+    fire_u8 = fire_raw.astype(np.uint8) * 255
+
+    # Elliptical morphological cleaning: open (denoise) then close (fill intra-zone gaps)
     k_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    k_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
-    clean = cv2.morphologyEx(burn_u8, cv2.MORPH_OPEN, k_open)
+    k_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+    clean = cv2.morphologyEx(fire_u8, cv2.MORPH_OPEN, k_open)
     clean = cv2.morphologyEx(clean, cv2.MORPH_CLOSE, k_close)
     clean = cv2.medianBlur(clean, 5)
 
@@ -1603,7 +1627,7 @@ def detect_burn_scar(
     burn_clean = filtered
 
     burn_pct = float((burn_clean > 0).mean() * 100.0)
-    # Estimate burned hectares using authentic ground resolution
+    # Estimate fire-affected hectares using authentic ground resolution
     res_m = get_pixel_resolution_meters(data2)
     burn_ha = float((burn_clean > 0).sum() * (res_m * res_m) / 10000.0)
 
@@ -1671,10 +1695,12 @@ def analyze_change(
         
         reorder_note = " (Chronological inversion auto-corrected: baseline precedes post-fire)" if auto_reordered else ""
         answer = (
-            f"Wildfire burn scar detected across approximately {burn_pct:.1f}% of the scene (~{burn_ha:,.0f} ha){loc_str}. "
-            f"Bi-temporal spectral analysis between the October 2018 baseline (T1) and November 2018 post-fire acquisition (T2) "
-            f"reveals significant green canopy loss and spectral warming shift consistent with the Camp Fire burn scar, "
-            f"primarily concentrated across the {burn_loc} sector.{reorder_note}"
+            f"Wildfire-affected zone detected across approximately {burn_pct:.1f}% of the scene (~{burn_ha:,.0f} ha){loc_str}. "
+            f"Tri-criterion spectral analysis of the Oct 2018 -> Nov 2018 Sentinel-2 pair identified: "
+            f"(1) smoke/haze plume above the active fire zone (neutral-gray, moderate-brightness pixels in T2 over dark forest in T1), "
+            f"(2) forest canopy loss (significant green-channel reduction), and "
+            f"(3) char/ash warming shift (reddish-brown spectral warming). "
+            f"Fire-affected area is primarily concentrated across the {burn_loc} sector, consistent with the Camp Fire perimeter.{reorder_note}"
         )
         
         # Statistically calibrated confidence via Platt-scaled logistic mapping

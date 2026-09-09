@@ -3769,7 +3769,7 @@ async def upload(
         key: value
         for key, value
         in data.items()
-        if key not in ("rgb", "bands", "raw_band")
+        if key not in ("rgb", "bands", "raw_band", "raw_rgb") and not isinstance(value, np.ndarray)
     }
 
     metadata["modality"] = modality
@@ -3901,7 +3901,7 @@ def load_demo_sample(req: LoadDemoRequest):
             "id": sec_id,
             "filename": sec_p.name,
             "preview_url": f"/generated/{sec_preview}",
-            "metadata": {k: v for k, v in sec_data.items() if k not in ("rgb", "bands", "raw_band")},
+            "metadata": {k: v for k, v in sec_data.items() if k not in ("rgb", "bands", "raw_band", "raw_rgb") and not isinstance(v, np.ndarray)},
         }
 
     return {
@@ -3910,7 +3910,7 @@ def load_demo_sample(req: LoadDemoRequest):
             "id": prim_id,
             "filename": prim_p.name,
             "preview_url": f"/generated/{prim_preview}",
-            "metadata": {k: v for k, v in prim_data.items() if k not in ("rgb", "bands", "raw_band")},
+            "metadata": {k: v for k, v in prim_data.items() if k not in ("rgb", "bands", "raw_band", "raw_rgb") and not isinstance(v, np.ndarray)},
         },
         "secondary": sec_meta,
     }

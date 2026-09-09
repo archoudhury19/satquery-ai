@@ -33,7 +33,7 @@ def understand_query(
 
     # 4. Multi-Class Land-Cover Segmentation
     segmentation = (not captioning) and bool(re.search(
-        r"\b(segment|segmentation|classify\s+all|colour-code|color-code|land-cover\s+map|all\s+classes|different\s+colou?rs|map\s+land\s+cover)\b",
+        r"\b(segment|segmentation|classif[a-z]*|colour-code|color-code|land-cover\s+map|all\s+classes|different\s+colou?rs|map\s+land\s+cover)\b",
         q
     ))
 
@@ -224,6 +224,19 @@ def build_plan(
                 "geospatial_tools",
                 {
                     "generate_change_evidence": True,
+                },
+            )
+
+        elif intent["segmentation"]:
+
+            task = "segmentation"
+            feature = "multiclass"
+
+            add_step(
+                steps,
+                "land_cover_segmenter",
+                {
+                    "classes": ["water", "vegetation", "built_up", "sand"],
                 },
             )
 

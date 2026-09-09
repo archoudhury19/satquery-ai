@@ -4350,6 +4350,90 @@ def _handle_rs_vqa(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
     secondary = ctx.get("secondary")
     feature = params.get("feature", ctx["feature"])
     req = ctx["req"]
+    q_low = (req.query or "").lower()
+    is_urban_rural = ("urban" in q_low and "rural" in q_low) or any(
+        w in q_low for w in ["is it urban", "is this urban", "is it rural", "is this rural", "is the area urban", "is this area urban", "whether the area is urban", "area is urban or rural"]
+    )
+    if is_urban_rural:
+        try:
+            _, _, diag = generate_rs_caption(primary["data"])
+            b = diag["composition"]
+            ls = diag["landscape_classification"]
+            built_pct = b["built_up_percent"]
+            veg_pct = b["vegetation_percent"]
+            water_pct = b["water_percent"]
+            bare_pct = round(b["bare_percent"] + b["desert_percent"], 1)
+
+            is_urban = ls in ["urban_dense", "urban_riverine", "urban_suburban"] or (built_pct >= 28.0)
+            zone_type = "urban" if is_urban else "rural"
+
+            if is_urban:
+                full_ans = (
+                    f"Urban. The satellite observation captures a predominantly urban area, "
+                    f"characterized by concentrated built-up fabric ({built_pct:.1f}% built-up structures) "
+                    f"and arterial transportation infrastructure, contrasting with {veg_pct:.1f}% vegetative cover."
+                )
+            elif ls == "forest_woodland" or veg_pct >= 40.0:
+                full_ans = (
+                    f"Rural. The satellite observation captures an open rural landscape, "
+                    f"dominated by natural vegetative canopy and agricultural plots ({veg_pct:.1f}% vegetation), "
+                    f"with minimal built-up infrastructure ({built_pct:.1f}% built-up)."
+                )
+            elif ls == "barren_desert" or bare_pct >= 50.0:
+                full_ans = (
+                    f"Rural. The satellite observation captures an uninhabited arid rural wilderness, "
+                    f"dominated by exposed bare ground and undulating sand dunes ({bare_pct:.1f}% bare/desert terrain), "
+                    f"with no significant urban settlements ({built_pct:.1f}% built-up)."
+                )
+            elif ls in ["coastal_marine", "riverine_water"] or water_pct >= 50.0:
+                full_ans = (
+                    f"Rural / Natural Aquatic. The satellite observation captures an open natural water and coastal environment "
+                    f"({water_pct:.1f}% water bodies), with minimal urban development ({built_pct:.1f}% built-up)."
+                )
+            else:
+                full_ans = (
+                    f"Rural. The satellite observation indicates an open rural terrain, "
+                    f"dominated by natural land-cover features, with minimal built-up infrastructure ({built_pct:.1f}% built-up)."
+                )
+
+            active_mask, _, _ = feature_mask("built-up" if is_urban else "vegetation", primary["path"], primary["data"])
+            overlay_name = make_overlay(
+                primary["data"]["rgb"],
+                active_mask,
+                "built_up" if is_urban else "vegetation"
+            )
+            elapsed = round((time.time() - t0) * 1000, 2)
+            ctx["trace"].append(
+                {
+                    "step": "RS-VQA",
+                    "status": "ok",
+                    "detail": f"Urban vs Rural spatial classification executed: {zone_type.upper()} ({ls})",
+                    "parameters": params,
+                    "timing_ms": elapsed,
+                }
+            )
+            return {
+                "answer": full_ans,
+                "confidence": 0.92,
+                "task": "vqa",
+                "tool": "GeoRSCLIP + RSVQA Adapter (Urban/Rural Classification)",
+                "overlay": overlay_name,
+                "overlay_url": f"/generated/{overlay_name}",
+                "evidence": {
+                    "classification": zone_type,
+                    "dominant_zone": "Urban Metropolitan" if is_urban else "Rural / Natural Landscape",
+                    "built_up_percent": built_pct,
+                    "vegetation_percent": veg_pct,
+                    "water_percent": water_pct,
+                    "bare_ground_percent": bare_pct,
+                    "landscape": ls,
+                },
+                "execution_trace": ctx["trace"],
+            }
+        except Exception as e:
+            import logging
+            logging.warning(f"Urban/rural reasoning error: {e}")
+
     if secondary:
         p_mod = infer_modality(primary["path"], primary["data"], primary.get("filename"))
         s_mod = infer_modality(secondary["path"], secondary["data"], secondary.get("filename"))
@@ -4471,44 +4555,6 @@ def _handle_rs_vqa(ctx: Dict[str, Any], **params) -> Dict[str, Any]:
         req.query,
     )
 
-    q_low = (req.query or "").lower()
-    if "urban" in q_low and "rural" in q_low:
-        try:
-            b_mask, _, _ = feature_mask("built-up", primary["path"], primary["data"])
-            v_mask, _, _ = feature_mask("vegetation", primary["path"], primary["data"])
-            b_pct = mask_stats(b_mask)["percent"]
-            v_pct = mask_stats(v_mask)["percent"]
-            is_urban = b_pct >= 15.0 or b_pct >= v_pct
-            zone_type = "urban" if is_urban else "rural"
-            
-            if is_urban:
-                full_ans = (
-                    f"Urban. The satellite observation indicates a predominantly urban area, "
-                    f"characterized by concentrated built-up fabric ({b_pct:.1f}% built-up structures) "
-                    f"and arterial transit networks, contrasting with {v_pct:.1f}% vegetative cover."
-                )
-            else:
-                full_ans = (
-                    f"Rural. The satellite observation indicates an open rural landscape, "
-                    f"dominated by natural vegetative canopy ({v_pct:.1f}% vegetation) and agricultural plots, "
-                    f"with minimal built-up infrastructure ({b_pct:.1f}% built-up)."
-                )
-            
-            overlay_name = make_overlay(primary["data"]["rgb"], b_mask if is_urban else v_mask, "built_up" if is_urban else "vegetation")
-            out["answer"] = full_ans
-            out["confidence"] = max(out.get("confidence", 0.75), 0.91)
-            out["overlay"] = overlay_name
-            out["overlay_url"] = f"/generated/{overlay_name}"
-            out["task"] = "vqa"
-            out["tool"] = "GeoRSCLIP + RSVQA Adapter (Urban/Rural Classification)"
-            out["evidence"] = {
-                "classification": zone_type,
-                "built_up_percent": round(b_pct, 1),
-                "vegetation_percent": round(v_pct, 1),
-                "dominant_zone": "Urban Metropolitan" if is_urban else "Rural / Natural Landscape"
-            }
-        except Exception as e:
-            logging.warning(f"Urban/rural reasoning error: {e}")
     elapsed = round((time.time() - t0) * 1000, 2)
     ctx["trace"].append(
         {

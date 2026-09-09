@@ -148,35 +148,54 @@ satquery-ai/
 ├── app.py                          # Root entry-point launcher for cloud & local deployments
 ├── satqueryctl                     # Unified CLI tool for 24/7 server, GPU, alerts, and tests
 ├── requirements.txt                # Python package dependencies (PyTorch, FastAPI, Rasterio, OpenCLIP)
-├── backend/
-│   └── app.py                      # Core FastAPI backend, REST endpoints, and dynamic tool orchestration
+├── Dockerfile                      # Container definition for reproducible GPU cloud execution
+├── render.yaml                     # Cloud deployment blueprint configuration
 ├── agent/
+│   ├── __init__.py
 │   ├── planner.py                  # Agentic execution planner & query intent understanding
 │   └── router.py                   # Natural-language query intent & specialist router
+├── backend/
+│   ├── __init__.py
+│   ├── app.py                      # Core FastAPI backend, REST endpoints, and dynamic tool orchestration
+│   └── uploads/                    # Ephemeral staging directory for uploaded GeoTIFFs
+├── benchmarks/
+│   ├── evaluate_benchmarks.py      # Automated benchmark evaluator with --full-eval (1000+ samples)
+│   ├── evaluate_metrics.py         # Statistical precision, recall, F1, OA, and IoU metric suite
+│   └── reports/                    # Output directory for benchmark run JSON reports
+├── data/
+│   └── external_datasets/          # Benchmark ground truth manifests (RSVQA, CDVQA, VRSBench, BigEarthNet)
+├── demo_data/                      # Curated benchmark datasets (1-click interactive presets)
+│   ├── bigearthnet/                # 1024×1024 Sentinel-2 MSI (TCI+NIR) + Sentinel-1 SAR RTC pair + annotations
+│   ├── real_world_satellite/       # 1024×1024 San Francisco Bay COG optical, Alps Sentinel-1 SAR
+│   ├── vrsbench/                   # 0.5m high-resolution optical imagery (Kolkata Urban) + QA pairs
+│   ├── isro_sac/                   # Co-registered Cartosat-2S optical + RISAT-1 SAR GeoTIFFs
+│   ├── cdvqa/                      # Bi-temporal California wildfire burn scar pair (T1 & T2)
+│   ├── assam_flood/                # Multi-temporal flood inundation pair (pre-flood & post-flood)
+│   └── edge_cases/                 # Global Sentinel-2 L2A tiles (Amazon, Paris, Sahara, Nile Delta, etc.)
+├── geospatial/
+│   ├── __init__.py
+│   ├── coregistration.py           # Sub-pixel Fourier phase correlation & ECC co-registration
+│   ├── multi_class_segmenter.py    # Multi-class land-cover segmentation engine (Bayesian MAP + CNN)
+│   ├── scene_captioner.py          # VRSBench & BigEarthNet remote-sensing scene description engine
+│   ├── water_detector.py           # Radiometric spectral water engines (NDWI, NDVI, AWEI, Otsu thresholding)
+│   ├── vegetation_detector.py      # Multispectral NDVI & visible atmospherically resistant index
+│   ├── builtup_detector.py         # NDBI, edge density, and structural urban fabric detector
+│   ├── change_detector.py          # Bi-temporal change detection & quantitative delta metrics
+│   ├── clip_grounding.py           # Open-vocabulary spatial visual grounding & bounding box localization
+│   ├── clip_segmenter.py           # Vectorized zero-shot multi-class AI segmentation engine
+│   ├── fusion.py                   # SAR dB calibration & optical-SAR cross-modal consensus fusion
+│   └── sar_processor.py            # Radiometric gamma-0/sigma-0 radar backscatter calibration
 ├── models/
+│   ├── __init__.py
 │   ├── rs_vlm.py                   # GeoRSCLIP ViT-B/32 backbone + RSVQA Adapter + Visual Grounder
 │   ├── land_cover_head.py          # DenseLandCoverSegHead CNN + Bayesian MAP ensemble
+│   ├── registry.py                 # Dynamic model registry and device execution manager
+│   ├── dataset_fetcher.py          # Automated STAC / Planetary Computer / AWS COG asset streamer
+│   ├── download_real_satellite_imagery.py  # High-res satellite streaming utility
+│   ├── train_adapter.py            # Supervised domain adaptation trainer for RSVQA MLP adapter
 │   └── checkpoints/                # Model weights directory (RSVQA MLP Adapter checkpoint)
-├── geospatial/
-│   ├── coregistration.py           # Sub-pixel Fourier phase correlation & ECC co-registration
-│   ├── multi_class_segmenter.py    # Multi-class land-cover segmentation engine
-│   ├── scene_captioner.py          # VRSBench & BigEarthNet remote sensing captioning engine
-│   ├── water_detector.py           # Radiometric spectral engines (NDWI, NDVI, AWEI, NDBI)
-│   ├── change_detector.py          # Bi-temporal change detection & quantitative delta metrics
-│   ├── clip_segmenter.py           # Vectorized zero-shot multi-class AI segmentation engine
-│   └── fusion.py                   # SAR dB calibration & optical-SAR cross-modal consensus fusion
-├── benchmarks/
-│   └── evaluate_benchmarks.py      # Automated benchmark evaluator with --full-eval (1000+ samples)
 ├── frontend/
-│   ├── index.html                  # Interactive GIS Leaflet map & orthomosaic pixel dashboard
-│   ├── app.js                      # Client-side map controllers, layer rendering, and API sync
-│   └── style.css                   # Responsive dark-mode interface styling
-├── demo_data/                      # Curated benchmark datasets (1-click interactive presets)
-│   ├── bigearthnet/                # 1024x1024 native Sentinel-2 MSI + Sentinel-1 SAR RTC pair
-│   ├── vrsbench/                   # 0.5m high-resolution optical imagery (Kolkata Urban)
-│   ├── isro_sac/                   # Co-registered Cartosat-2S optical + RISAT-1 SAR dataset
-│   ├── cdvqa/                      # Bi-temporal California wildfire burn scar pair (T1 & T2)
-│   ├── real_world_satellite/       # 1024x1024 San Francisco Bay COG optical, Alps Sentinel-1 SAR
+│   └── index.html                  # Interactive GIS Leaflet map, layer rendering, and execution trace dashboard
 ├── scripts/                        # Automated deployment, monitoring, and notification utilities
 │   ├── run_tunnel.sh               # Cloudflare Tunnel runner with HTTP/2 transport & boot alerts
 │   ├── notify.sh                   # Telegram Bot & Discord Webhook alert dispatcher
@@ -184,6 +203,7 @@ satquery-ai/
 │   ├── get_tunnel_url.sh           # Active public HTTPS URL extractor
 │   ├── start_all.sh                # 24/7 background services start script
 │   ├── stop_all.sh                 # 24/7 background services stop script
+│   ├── restart_all.sh              # 24/7 background services restart script
 │   └── status.sh                   # Real-time health & telemetry dashboard
 ├── systemd/                        # Persistent systemd user service definitions
 │   ├── satquery.service            # FastAPI + CUDA server supervisor (Restart=always)
@@ -192,7 +212,10 @@ satquery-ai/
     ├── test_brutal_audit.py        # Comprehensive 36-test architectural and edge-case test suite
     ├── test_queries.py             # Representative benchmark query verification
     ├── test_benchmarks.py          # RSVQA, VRSBench, CDVQA, and Optical-SAR evaluations
-    └── test_water_detector.py      # Radiometric index & spectral band resolution tests
+    ├── test_edge_cases.py          # Real-world global Sentinel-2 edge case evaluations
+    ├── test_water_detector.py      # Radiometric index & spectral band resolution tests
+    ├── test_load_demo.py           # 1-click demo preset registration validation
+    └── test_real_internet_sat.py   # Planetary Computer & AWS COG asset validation
 ```
 
 ---

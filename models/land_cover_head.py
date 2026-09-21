@@ -101,11 +101,16 @@ class DenseLandCoverSegHead(nn.Module):
 _GLOBAL_SEG_HEAD: Optional[DenseLandCoverSegHead] = None
 
 
-def get_dense_segmentation_head(device: str = "cpu") -> DenseLandCoverSegHead:
+def get_dense_segmentation_head(device: Optional[str] = None) -> DenseLandCoverSegHead:
     global _GLOBAL_SEG_HEAD
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
     if _GLOBAL_SEG_HEAD is None:
         _GLOBAL_SEG_HEAD = DenseLandCoverSegHead(in_channels=3, num_classes=4)
         _GLOBAL_SEG_HEAD.eval()
+        _GLOBAL_SEG_HEAD.to(device)
+    else:
+        # Ensure model is on requested device
         _GLOBAL_SEG_HEAD.to(device)
     return _GLOBAL_SEG_HEAD
 
@@ -113,7 +118,7 @@ def get_dense_segmentation_head(device: str = "cpu") -> DenseLandCoverSegHead:
 def predict_dense_land_cover(
     rgb_arr: np.ndarray,
     bands: Optional[Dict[str, np.ndarray]] = None,
-    device: str = "cpu",
+    device: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Computes dense multi-class land-cover probabilities and entropy uncertainty

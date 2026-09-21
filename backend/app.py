@@ -167,9 +167,20 @@ class _LazyRSVLM:
 
 RS_VLM = _LazyRSVLM()
 
-# MVP in-memory state.
+# MVP in-memory state with bounded LRU eviction
 FILES: Dict[str, Dict[str, Any]] = {}
 CONTEXT: Dict[str, Dict[str, Any]] = {}
+MAX_IN_MEMORY_FILES = 50
+
+
+def register_file(file_id: str, entry: Dict[str, Any]) -> None:
+    """Store image data with bounded FIFO eviction to maintain lean RAM footprint."""
+    global FILES
+    if len(FILES) >= MAX_IN_MEMORY_FILES:
+        # Evict oldest registered entry
+        oldest_key = next(iter(FILES))
+        FILES.pop(oldest_key, None)
+    FILES[file_id] = entry
 
 
 # ============================================================
@@ -629,7 +640,8 @@ def feature_mask(
     try:
         from models.land_cover_head import predict_dense_land_cover
         if "rgb" in data:
-            neural_res = predict_dense_land_cover(data["rgb"])
+            seg_dev = "cuda" if torch.cuda.is_available() else "cpu"
+            neural_res = predict_dense_land_cover(data["rgb"], device=seg_dev)
             probs = neural_res["probabilities"]
             feat_idx = {"water": 0, "vegetation": 1, "built-up": 2, "desert": 3, "sand": 3}.get(feature)
             if feat_idx is not None:
@@ -3812,11 +3824,11 @@ async def upload(
         file.filename or target.name
     )
 
-    FILES[file_id] = {
+    register_file(file_id, {
         "path": target,
         "data": data,
         "filename": file.filename,
-    }
+    })
 
     modality = infer_modality(
         target,
@@ -3945,7 +3957,7 @@ def load_demo_sample(req: LoadDemoRequest):
     prim_id = f"demo_prim_{uuid.uuid4().hex[:6]}"
     prim_data = read_image(prim_p)
     prim_preview = save_preview(prim_data["rgb"], prim_id)
-    FILES[prim_id] = {"path": prim_p, "data": prim_data, "filename": prim_p.name}
+    register_file(prim_id, {"path": prim_p, "data": prim_data, "filename": prim_p.name})
 
     sec_id = None
     sec_preview = None
@@ -3955,7 +3967,7 @@ def load_demo_sample(req: LoadDemoRequest):
         sec_id = f"demo_sec_{uuid.uuid4().hex[:6]}"
         sec_data = read_image(sec_p)
         sec_preview = save_preview(sec_data["rgb"], sec_id)
-        FILES[sec_id] = {"path": sec_p, "data": sec_data, "filename": sec_p.name}
+        register_file(sec_id, {"path": sec_p, "data": sec_data, "filename": sec_p.name})
         sec_meta = {
             "id": sec_id,
             "filename": sec_p.name,

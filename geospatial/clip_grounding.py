@@ -135,9 +135,12 @@ def ground_with_clip(
     # Contrast enhance for ViT visual tokens
     rgb_enhanced = _enhance_satellite_rgb(rgb_raw)
 
+    # Convert to PyTorch float32 tensor (3, H, W) normalized to [0, 1]
+    rgb_f = (rgb_enhanced.astype(np.float32) / 255.0).transpose(2, 0, 1)
+
     # Dense Sliding Window (Window size = 48..64, Stride = 24..32)
     win_size = min(max(32, min(H, W) // 8), 64)
-    stride = max(16, win_size // 2)
+    stride = max(20, win_size // 2)
 
     y_steps = list(range(0, H - win_size + 1, stride))
     if not y_steps or y_steps[-1] != H - win_size:
@@ -152,24 +155,26 @@ def ground_with_clip(
     accum_sim = np.zeros((H, W), dtype=np.float32)
     accum_weights = np.zeros((H, W), dtype=np.float32)
 
-    patch_batch: List[Tuple[int, int, Image.Image]] = []
-    for y in y_steps:
-        for x in x_steps:
-            patch = rgb_enhanced[y : y + win_size, x : x + win_size]
-            pil_p = Image.fromarray(patch)
-            patch_batch.append((y, x, pil_p))
+    coords = [(y, x) for y in y_steps for x in x_steps]
 
-    batch_size = 32
-    for b_idx in range(0, len(patch_batch), batch_size):
-        batch = patch_batch[b_idx : b_idx + batch_size]
-        tensors = torch.stack([preprocess(p) for _, _, p in batch]).to(device)
+    # Standard CLIP normalization constants on target device
+    mean = torch.tensor([0.48145466, 0.4578275, 0.40821073], device=device).view(1, 3, 1, 1)
+    std = torch.tensor([0.26862954, 0.26130258, 0.27577711], device=device).view(1, 3, 1, 1)
+
+    batch_size = 16  # Memory-safe micro-batching for 2GB GPU
+    for b_idx in range(0, len(coords), batch_size):
+        batch_coords = coords[b_idx : b_idx + batch_size]
+        batch_np = np.stack([rgb_f[:, y : y + win_size, x : x + win_size] for y, x in batch_coords], axis=0)
+        batch_t = torch.from_numpy(batch_np).to(device)
+        batch_resized = torch.nn.functional.interpolate(batch_t, size=(224, 224), mode="bicubic", align_corners=False)
+        batch_norm = (batch_resized - mean) / std
 
         with torch.no_grad():
-            img_feats = model.encode_image(tensors)
+            img_feats = model.encode_image(batch_norm).float()
             img_feats = img_feats / (img_feats.norm(dim=-1, keepdim=True) + 1e-8)
             sims = (img_feats @ query_emb.T).squeeze(-1).cpu().numpy()  # (B,)
 
-        for i, (y, x, _) in enumerate(batch):
+        for i, (y, x) in enumerate(batch_coords):
             accum_sim[y : y + win_size, x : x + win_size] += sims[i] * g_kernel
             accum_weights[y : y + win_size, x : x + win_size] += g_kernel
 

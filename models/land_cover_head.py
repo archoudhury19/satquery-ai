@@ -139,6 +139,7 @@ def predict_dense_land_cover(
       - 'mean_entropy': float
     """
     model = get_dense_segmentation_head(device=device)
+    model_device = next(model.parameters()).device
 
     # Normalize RGB to [0, 1] float32 tensor
     rgb = np.asarray(rgb_arr, dtype=np.float32)
@@ -163,7 +164,7 @@ def predict_dense_land_cover(
     rgb_tensor_data = (rgb_norm - mean) / std
 
     # (1, 3, H, W) — explicitly float32 to prevent dtype mismatch with model biases
-    tensor = torch.from_numpy(np.ascontiguousarray(rgb_tensor_data.transpose(2, 0, 1), dtype=np.float32)).unsqueeze(0).to(device)
+    tensor = torch.from_numpy(np.ascontiguousarray(rgb_tensor_data.transpose(2, 0, 1), dtype=np.float32)).unsqueeze(0).to(model_device)
 
     with torch.no_grad():
         logits = model(tensor)

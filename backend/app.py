@@ -112,6 +112,7 @@ def _load_benchmark_content_hashes() -> Set[str]:
 BENCHMARK_CONTENT_HASHES: Set[str] = _load_benchmark_content_hashes()
 
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 
 app = FastAPI(
     title="SatQuery AI MVP",
@@ -124,6 +125,11 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+)
+# Enable high-speed GZIP compression for all responses > 500 bytes over the internet
+app.add_middleware(
+    GZipMiddleware,
+    minimum_size=500,
 )
 
 # Maximum upload size: 200 MB

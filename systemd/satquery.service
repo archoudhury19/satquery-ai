@@ -11,6 +11,7 @@ RestartSec=3
 Environment="PORT=8000"
 Environment="CUDA_VISIBLE_DEVICES=0"
 Environment="PYTHONUNBUFFERED=1"
+Environment="PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True"
 Environment="PATH=/home/arc/.gemini/antigravity/scratch/satquery-ai/.venv/bin:/home/arc/.local/bin:/usr/local/bin:/usr/bin"
 StandardOutput=journal
 StandardError=journal
